@@ -162,8 +162,9 @@ def run_step1(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
         )
         
         if not args.dry_run:
-            print(f"✅ Step 1 complete: {len(state.selected_files)} files selected")
-            total_size_mb = sum(f.stat().st_size for f in state.selected_files) / (1024*1024)
+            files = state.selected_files or []
+            print(f"✅ Step 1 complete: {len(files)} files selected")
+            total_size_mb = sum(int(f.stat().st_size) for f in files) / (1024*1024)
             print(f"   Total size: {total_size_mb:.1f} MB")
         
         return state
@@ -196,7 +197,7 @@ def run_step2(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
         )
         
         print("✅ Step 2 complete: Processed file saved")
-        if state.processed_file.exists():
+        if state.processed_file and state.processed_file.exists():
             size_mb = state.processed_file.stat().st_size / (1024*1024)
             print(f"   Output: {state.processed_file}")
             print(f"   Size: {size_mb:.1f} MB")
@@ -238,7 +239,7 @@ def run_step3(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
         )
         
         print("✅ Step 3 complete: Cleaned file saved")
-        if state.cleaned_file.exists():
+        if state.cleaned_file and state.cleaned_file.exists():
             size_mb = state.cleaned_file.stat().st_size / (1024*1024)
             print(f"   Output: {state.cleaned_file}")
             print(f"   Size: {size_mb:.1f} MB")
