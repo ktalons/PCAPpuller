@@ -150,7 +150,7 @@ class ThreeStepWorkflow:
             final_candidates = filtered_candidates
         
         if dry_run:
-            logging.info(f"Step 1 dry run results:")
+            logging.info("Step 1 dry run results:")
             logging.info(f"  Total files found: {len(all_candidates)}")
             logging.info(f"  After pattern filtering: {len(filtered_candidates)}")
             logging.info(f"  After precise filtering: {len(final_candidates)}")

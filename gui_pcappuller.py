@@ -500,7 +500,7 @@ def main():
             result = _open_pattern_settings(window, include_patterns, exclude_patterns)
             if result:
                 include_patterns, exclude_patterns = result
-                print(f"Pattern settings updated:")
+                print("Pattern settings updated:")
                 print(f"  Include: {include_patterns}")
                 print(f"  Exclude: {exclude_patterns}")
                 

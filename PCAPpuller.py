@@ -196,7 +196,7 @@ def run_step2(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
             verbose=args.verbose
         )
         
-        print(f"✅ Step 2 complete: Processed file saved")
+        print("✅ Step 2 complete: Processed file saved")
         if state.processed_file.exists():
             size_mb = state.processed_file.stat().st_size / (1024*1024)
             print(f"   Output: {state.processed_file}")
@@ -238,7 +238,7 @@ def run_step3(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
             verbose=args.verbose
         )
         
-        print(f"✅ Step 3 complete: Cleaned file saved")
+        print("✅ Step 3 complete: Cleaned file saved")
         if state.cleaned_file.exists():
             size_mb = state.cleaned_file.stat().st_size / (1024*1024)
             print(f"   Output: {state.cleaned_file}")
@@ -256,7 +256,7 @@ def show_status(workflow: ThreeStepWorkflow):
         state = workflow.load_workflow()
         summary = workflow.get_summary(state)
         
-        print(f"📊 Workflow Status")
+        print("📊 Workflow Status")
         print(f"   Workspace: {summary['workspace_dir']}")
         print(f"   Time window: {summary['window']}")
         print()
@@ -340,7 +340,7 @@ def main():
             if final_file and final_file.exists():
                 size_mb = final_file.stat().st_size / (1024*1024)
                 print()
-                print(f"🎉 Workflow complete!")
+                print("🎉 Workflow complete!")
                 print(f"   Final output: {final_file}")
                 print(f"   Size: {size_mb:.1f} MB")
         
