@@ -1,7 +1,13 @@
 # PCAPpuller 👊
-## A fast PCAP window selector, merger, and trimmer ⏩
 
-PCAPpuller helps you pull just the packets you need from large rolling PCAP collections.
+[![GitHub release](https://img.shields.io/github/v/release/ktalons/daPCAPpuller)](https://github.com/ktalons/daPCAPpuller/releases/latest)
+[![CI](https://github.com/ktalons/daPCAPpuller/workflows/CI/badge.svg)](https://github.com/ktalons/daPCAPpuller/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+
+## A fast PCAP window selector, merger, trimmer, and cleaner ⏩
+
+PCAPpuller is a comprehensive network analysis tool that helps you extract, clean, and analyze packets from large PCAP collections with enterprise-grade filtering capabilities.
 
 ---
 
@@ -45,36 +51,40 @@ Requirements for the GUI binary: Wireshark CLI tools (tshark, mergecap, editcap,
 - Windows: double-click PCAPpullerGUI-windows.exe
 
 ### Quickstart (GUI)
-1) Pick Root folder(s) containing your PCAP/PCAPNG files
-2) Set Start time and Minutes (or use End time via Advanced if available)
-3) Optional: Precise filter, Display filter (Wireshark syntax), Gzip
-4) Choose an output file path
-5) Click Run — progress will appear; cancel anytime
+**PCAP Window Extraction:**
+1. Pick Root folder(s) containing your PCAP/PCAPNG files
+2. Set Start time and Duration (Hours/Minutes)
+3. Optional: Precise filter, Display filter (300+ filters available), Gzip
+4. Choose output file path
+5. Click Run — progress will appear; cancel anytime
+
+**PCAP Cleaning:**
+1. Click "Clean..." button
+2. Select input PCAP/PCAPNG file
+3. Configure options: format conversion, reordering, snaplen, filtering
+4. Optional: time window trimming, output splitting
+5. Click "Clean" — creates optimized capture files
 
 ---
 
-## What’s new ✨
-- Refactored into a reusable core library (`pcappuller`) for stability and testability.
-- Deterministic `capinfos` parsing and improved error handling.
-- Flexible datetime parsing (`YYYY-MM-DD HH:MM:SS`, ISO-like, `Z`).
-- `--end` as an alternative to `--minutes` (mutually exclusive).
-- Multiple roots supported: `--root /dir1 /dir2 /dir3`.
-- `--verbose` logging shows external tool commands/output.
-- Dry-run `--summary` prints min/max packet times across survivors (UTC).
-- Optional capinfos metadata cache (enabled by default) to speed up repeated runs.
-- GUI with folder pickers, checkboxes, and progress.
+## What's New in v0.2.3 ✨
+- **🔍 Massive Filter Expansion**: 300+ Wireshark display filters across 41 protocol categories
+- **🎨 GUI Clean Integration**: Complete PCAP cleaning functionality in the GUI interface
+- **📱 Desktop Integration**: Proper icons and desktop files for Linux packages  
+- **🔧 Enhanced CI/CD**: Improved testing and build processes
+- **🎯 Professional Analysis**: Enterprise-grade filtering matching Wireshark's capabilities
 
-## Features  🧰
-- 2️⃣ Two-phase selection
-  - Fast prefilter by file mtime.
-  - Optional precise filter using `capinfos -a -e -S` to keep only files whose packets overlap the target window.
-- :electron: Parallel capinfos `--workers auto | N` for thousands of files.
-- 🧩 Batch merges with mergecap to avoid huge argv/memory usage.
-- ✂️ Exact time trim using `editcap -A/-B`.
-- 🦈 Display filter `tshark -Y "<filter>"` after trimming (e.g. dns, tcp.port==443).
-- 🏁 Output control: `--out-format pcap | pcapng` and optional `--gzip`.
-- 🧪 Dry run to preview survivors and optional `--list-out .csv | .txt` to save the list.
-- ✨ Robust temp handling `--tmpdir` and tqdm progress bars.
+## Core Features 🧰
+- **🗂 PCAP Window Extraction**: Pull exact time windows from large rolling collections
+- **🧽 PCAP Cleaning**: Convert, reorder, truncate, filter, and split captures
+- **2️⃣ Two-Phase Selection**: Fast mtime prefilter + optional precise capinfos filtering
+- **⚡ Parallel Processing**: Multi-threaded capinfos analysis for thousands of files
+- **🧩 Smart Batching**: Efficient mergecap operations to avoid memory issues
+- **✂️ Precise Trimming**: Exact time boundaries with editcap
+- **🔍 Advanced Filtering**: 300+ Wireshark display filters for comprehensive analysis
+- **🏁 Format Control**: Output as pcap/pcapng with optional gzip compression
+- **🧪 Audit Mode**: Dry-run with detailed reporting and survivor lists
+- **🎨 GUI Interface**: User-friendly desktop application with progress tracking
 ___
 ## How it works ⚙️
 1. Scan --root for *.pcap, *.pcapng, *.cap whose mtime falls within [start-slop, end+slop].
@@ -116,13 +126,16 @@ ___
 - Dry-run: `pcap-puller --root /mnt/dir --start "YYYY-MM-DD HH:MM:SS" --minutes 15 --dry-run --list-out list.csv --summary --report survivors.csv`
 
 ### Clean a large/processed capture
-- Convert to classic pcap when possible (drops pcapng metadata), reorder by timestamp, truncate payloads, and optionally filter/split:
+**GUI**: Click "Clean..." button for intuitive interface with all options
+
+**CLI Examples:**
+- Convert to classic pcap, reorder, truncate, filter, and split:
   - `pcap-clean --input /path/to/big.pcapng --snaplen 256 --filter "tcp || udp || icmp || icmpv6" --split-seconds 60`
-- Keep original format (pcapng) and just reorder + snaplen:
+- Keep original format and just reorder + snaplen:
   - `pcap-clean --input /path/to/big.pcapng --keep-format --snaplen 128`
-- Trim to a time window and then filter to a host/port:
+- Trim to time window and filter to specific host/port:
   - `pcap-clean --input /path/file.pcap --start "2025-10-02 10:00:00" --end "2025-10-02 10:15:00" --filter "ip.addr==10.0.0.5 && tcp.port==443"`
-- Output directory (default: `<input>_clean`) can be customized:
+- Custom output directory:
   - `pcap-clean --input /path/file.pcapng --out-dir /tmp/cleaned/ --snaplen 256`
 
 ### Direct (without install)
