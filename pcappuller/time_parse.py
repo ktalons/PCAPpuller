@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import datetime as dt
-from typing import Optional, Tuple
+from typing import Optional, Tuple, cast, Any
 
 try:
     from dateutil import parser as dateutil_parser  # optional
 except Exception:
-    dateutil_parser = None  # type: ignore
+    dateutil_parser = None  # type: ignore[assignment]
 
 
 class TimeParseError(ValueError):
@@ -34,7 +36,7 @@ def parse_dt_flexible(s: str) -> dt.datetime:
     # Fallback: dateutil if available
     if dateutil_parser is not None:
         try:
-            dv = dateutil_parser.parse(s)
+            dv: dt.datetime = dateutil_parser.parse(s)
             if dv.tzinfo:
                 return dv.astimezone(tz=None).replace(tzinfo=None)
             return dv
