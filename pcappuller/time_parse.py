@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional, Tuple
+from typing import Optional, Tuple, TYPE_CHECKING
 
-try:
-    from dateutil import parser as dateutil_parser  # optional
-except Exception:
-    dateutil_parser = None  # type: ignore[assignment]
+if TYPE_CHECKING:
+    from dateutil import parser as dateutil_parser
+else:
+    try:
+        from dateutil import parser as dateutil_parser  # optional
+    except Exception:
+        dateutil_parser = None
 
 
 class TimeParseError(ValueError):
