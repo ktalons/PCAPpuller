@@ -10,14 +10,13 @@ import traceback
 import tempfile
 from pathlib import Path
 import datetime as dt
-import json
 
 try:
     import PySimpleGUI as sg
 except Exception:
     raise SystemExit("PySimpleGUI not installed. Install with: python3 -m pip install PySimpleGUI")
 
-from pcappuller.workflow import ThreeStepWorkflow, WorkflowState
+from pcappuller.workflow import ThreeStepWorkflow
 from pcappuller.core import Window, parse_workers
 from pcappuller.time_parse import parse_dt_flexible
 from pcappuller.errors import PCAPPullerError

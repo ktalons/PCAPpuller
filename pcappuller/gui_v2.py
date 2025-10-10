@@ -11,7 +11,7 @@ try:
 except Exception:
     raise SystemExit("PySimpleGUI not installed. Install with: python3 -m pip install PySimpleGUI")
 
-from .workflow import ThreeStepWorkflow, WorkflowState
+from .workflow import ThreeStepWorkflow
 from .core import Window, parse_workers
 from .time_parse import parse_dt_flexible
 from .errors import PCAPPullerError

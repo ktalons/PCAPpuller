@@ -10,7 +10,6 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import List, Dict, Any
 
 try:
     from tqdm import tqdm
