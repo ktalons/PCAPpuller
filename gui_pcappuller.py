@@ -25,6 +25,7 @@ from pcappuller.core import (
 from pcappuller.time_parse import parse_dt_flexible
 from pcappuller.errors import PCAPPullerError
 from pcappuller.filters import COMMON_FILTERS, FILTER_EXAMPLES
+from pcappuller.clean_cli import clean_pipeline
 
 
 def compute_recommended(duration_minutes: int) -> dict:
@@ -133,6 +134,130 @@ def _open_filters_dialog(parent: "sg.Window") -> str | None:
     return None
 
 
+def _open_clean_dialog(parent: "sg.Window") -> dict | None:
+    """Open dialog for PCAP cleaning options. Returns config dict or None if cancelled."""
+    layout = [
+        [sg.Text("PCAP Clean Settings", font=("Arial", 14, "bold"))],
+        [sg.HSeparator()],
+        [sg.Text("Input file"), sg.Input(key="-CLEAN-INPUT-", expand_x=True), sg.FileBrowse(file_types=(("PCAP files", "*.pcap *.pcapng"),))],
+        [sg.Text("Output dir"), sg.Input(key="-CLEAN-OUTPUT-", expand_x=True), sg.FolderBrowse()],
+        [sg.HSeparator()],
+        [sg.Checkbox("Convert to PCAP format", key="-CLEAN-CONVERT-", default=True, tooltip="Convert pcapng to pcap (loses metadata)")],
+        [sg.Checkbox("Reorder packets by timestamp", key="-CLEAN-REORDER-", default=True, tooltip="Use reordercap to fix timestamp order")],
+        [sg.Text("Snaplen (packet truncation)"), sg.Input("256", key="-CLEAN-SNAPLEN-", size=(8,1)), sg.Text("bytes (0=disable)")],
+        [sg.HSeparator()],
+        [sg.Text("Time Window (optional)")],
+        [sg.Text("Start"), sg.Input(key="-CLEAN-START-", size=(20,1)), sg.Text("End"), sg.Input(key="-CLEAN-END-", size=(20,1))],
+        [sg.Text("Display filter"), sg.Input(key="-CLEAN-FILTER-", expand_x=True), sg.Button("Filters...", key="-CLEAN-DFILTERS-")],
+        [sg.HSeparator()],
+        [sg.Text("Split Output (optional)")],
+        [sg.Radio("No splitting", "split", key="-CLEAN-NOSPLIT-", default=True)],
+        [sg.Radio("Split every", "split", key="-CLEAN-SPLIT-SEC-"), sg.Input("60", key="-CLEAN-SEC-VAL-", size=(8,1)), sg.Text("seconds")],
+        [sg.Radio("Split every", "split", key="-CLEAN-SPLIT-PKT-"), sg.Input("1000", key="-CLEAN-PKT-VAL-", size=(8,1)), sg.Text("packets")],
+        [sg.HSeparator()],
+        [sg.Checkbox("Verbose output", key="-CLEAN-VERBOSE-")],
+        [sg.Text("", expand_x=True), sg.Button("Clean"), sg.Button("Cancel")],
+    ]
+    
+    win = sg.Window("PCAP Clean", layout, modal=True, keep_on_top=True, size=(600, 500))
+    
+    while True:
+        ev, vals = win.read()
+        if ev in (sg.WINDOW_CLOSED, "Cancel"):
+            win.close()
+            return None
+            
+        if ev == "-CLEAN-DFILTERS-":
+            picked = _open_filters_dialog(win)
+            if picked:
+                prev = vals.get("-CLEAN-FILTER-") or ""
+                if prev and not prev.endswith(" "):
+                    prev += " "
+                win["-CLEAN-FILTER-"].update(prev + picked)
+                
+        elif ev == "Clean":
+            # Validate inputs
+            input_file = vals.get("-CLEAN-INPUT-", "").strip()
+            if not input_file:
+                sg.popup_error("Please select an input file")
+                continue
+                
+            if not Path(input_file).exists():
+                sg.popup_error(f"Input file not found: {input_file}")
+                continue
+                
+            # Parse time window
+            start_str = vals.get("-CLEAN-START-", "").strip()
+            end_str = vals.get("-CLEAN-END-", "").strip()
+            start_dt = end_dt = None
+            
+            if start_str or end_str:
+                if not (start_str and end_str):
+                    sg.popup_error("Please provide both start and end times, or leave both empty")
+                    continue
+                try:
+                    start_dt = parse_dt_flexible(start_str)
+                    end_dt = parse_dt_flexible(end_str)
+                except Exception as e:
+                    sg.popup_error(f"Invalid time format: {e}")
+                    continue
+                    
+            # Parse snaplen
+            try:
+                snaplen = int(vals.get("-CLEAN-SNAPLEN-", "0") or "0")
+                if snaplen < 0:
+                    raise ValueError
+            except ValueError:
+                sg.popup_error("Snaplen must be a non-negative integer")
+                continue
+                
+            # Parse split options
+            split_seconds = split_packets = None
+            if vals.get("-CLEAN-SPLIT-SEC-"):
+                try:
+                    split_seconds = int(vals.get("-CLEAN-SEC-VAL-", "60") or "60")
+                    if split_seconds <= 0:
+                        raise ValueError
+                except ValueError:
+                    sg.popup_error("Split seconds must be a positive integer")
+                    continue
+                    
+            if vals.get("-CLEAN-SPLIT-PKT-"):
+                try:
+                    split_packets = int(vals.get("-CLEAN-PKT-VAL-", "1000") or "1000")
+                    if split_packets <= 0:
+                        raise ValueError
+                except ValueError:
+                    sg.popup_error("Split packets must be a positive integer")
+                    continue
+                    
+            # Build config
+            output_dir = vals.get("-CLEAN-OUTPUT-", "").strip()
+            if not output_dir:
+                # Default to input_file_clean next to input
+                output_dir = str(Path(input_file).with_name(Path(input_file).name + "_clean"))
+                
+            config = {
+                "input_file": Path(input_file),
+                "output_dir": Path(output_dir),
+                "keep_format": not vals.get("-CLEAN-CONVERT-", True),
+                "do_reorder": vals.get("-CLEAN-REORDER-", True),
+                "snaplen": snaplen,
+                "start_dt": start_dt,
+                "end_dt": end_dt,
+                "display_filter": vals.get("-CLEAN-FILTER-", "").strip() or None,
+                "split_seconds": split_seconds,
+                "split_packets": split_packets,
+                "verbose": vals.get("-CLEAN-VERBOSE-", False),
+            }
+            
+            win.close()
+            return config
+            
+    win.close()
+    return None
+
+
 def run_puller(values: dict, window: "sg.Window", stop_flag: dict, adv_overrides: dict | None) -> None:
     try:
         start = parse_dt_flexible(values["-START-"])
@@ -208,6 +333,43 @@ def run_puller(values: dict, window: "sg.Window", stop_flag: dict, adv_overrides
         window.write_event_value("-DONE-", f"Error: {e}\n{tb}")
 
 
+def run_clean(config: dict, window: "sg.Window", stop_flag: dict) -> None:
+    """Run the clean pipeline with progress updates."""
+    try:
+        window.write_event_value("-PROGRESS-", ("clean", 0, 100))
+        
+        if stop_flag["stop"]:
+            raise PCAPPullerError("Cancelled")
+            
+        # Run the clean pipeline
+        outputs = clean_pipeline(
+            input_path=config["input_file"],
+            out_dir=config["output_dir"],
+            keep_format=config["keep_format"],
+            do_reorder=config["do_reorder"],
+            snaplen=config["snaplen"],
+            start_dt=config["start_dt"],
+            end_dt=config["end_dt"],
+            display_filter=config["display_filter"],
+            split_seconds=config["split_seconds"],
+            split_packets=config["split_packets"],
+            verbose=config["verbose"],
+        )
+        
+        window.write_event_value("-PROGRESS-", ("clean", 100, 100))
+        
+        if len(outputs) == 1:
+            result_msg = f"Clean completed. Output: {outputs[0]}"
+        else:
+            result_msg = f"Clean completed. Created {len(outputs)} files in: {config['output_dir']}"
+            
+        window.write_event_value("-DONE-", result_msg)
+        
+    except Exception as e:
+        tb = traceback.format_exc()
+        window.write_event_value("-DONE-", f"Clean Error: {e}\n{tb}")
+
+
 def main():
     sg.theme("SystemDefault")
     layout = [
@@ -226,7 +388,7 @@ def main():
         [sg.Text("Precise filter analyzes files and discards those without packets in the time window.", key="-PF-HELP-", visible=False, text_color="gray")],
         [sg.Text("", key="-STATUS-", size=(80,1))],
         [sg.ProgressBar(100, orientation="h", size=(40, 20), key="-PB-")],
-        [sg.Text("", expand_x=True), sg.Button("Settings...", key="-SETTINGS-"), sg.Button("Run"), sg.Button("Cancel"), sg.Button("Exit")],
+        [sg.Text("", expand_x=True), sg.Button("Settings...", key="-SETTINGS-"), sg.Button("Clean...", key="-CLEAN-"), sg.Button("Run"), sg.Button("Cancel"), sg.Button("Exit")],
         [sg.Output(size=(100, 20))]
     ]
     window = sg.Window("PCAPpuller", layout)
@@ -270,6 +432,13 @@ def main():
         elif event == "Cancel":
             stop_flag["stop"] = True
             window["-STATUS-"].update("Cancelling...")
+        elif event == "-CLEAN-" and worker is None:
+            clean_config = _open_clean_dialog(window)
+            if clean_config:
+                stop_flag["stop"] = False
+                window["-STATUS-"].update("Running PCAP clean...")
+                worker = threading.Thread(target=run_clean, args=(clean_config, window, stop_flag), daemon=True)
+                worker.start()
         elif event == "-SETTINGS-":
             adv_overrides = _open_advanced_settings(window, compute_recommended(min(int(values.get("-HOURS-",0) or 0)*60 + int(values.get("-MINS-",0) or 0), 1440)), adv_overrides)
             _update_reco_label()
