@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=PCAPpuller GUI
+GenericName=PCAP Analysis Tool
+Comment=Fast PCAP window selector, merger, trimmer, and cleaner
+Exec=pcappuller-gui
+Icon=pcappuller
+Terminal=false
+Categories=Network;System;
+Keywords=pcap;wireshark;network;packet;analysis;
+StartupNotify=true

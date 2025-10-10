@@ -76,7 +76,9 @@ jobs:
             pyinstaller --windowed $ICON --name PCAPpullerGUI gui_pcappuller.py
             (cd dist && zip -r ../release/PCAPpullerGUI-macos.zip PCAPpullerGUI.app)
           else
-            pyinstaller --onefile --windowed --name PCAPpullerGUI gui_pcappuller.py
+            # Linux: try to use icon if available
+            if [ -f assets/icons/pcappuller.png ]; then ICON="--icon assets/icons/pcappuller.png"; else ICON=""; fi
+            pyinstaller --onefile --windowed $ICON --name PCAPpullerGUI gui_pcappuller.py
             mv dist/PCAPpullerGUI "release/PCAPpullerGUI-linux"
           fi
 
@@ -90,23 +92,53 @@ jobs:
           sudo gem install --no-document fpm
           VERSION=$(grep -E '^version\s*=\s*"[0-9]+\.[0-9]+\.[0-9]+"' pyproject.toml | sed -E 's/.*"([0-9]+\.[0-9]+\.[0-9]+)"/\1/')
           STAGE=$(mktemp -d)
+          
+          # Install binary
           mkdir -p "$STAGE/usr/local/bin"
           install -m 0755 release/PCAPpullerGUI-linux "$STAGE/usr/local/bin/pcappuller-gui"
+          
+          # Install desktop file
+          mkdir -p "$STAGE/usr/share/applications"
+          install -m 0644 pcappuller-gui.desktop "$STAGE/usr/share/applications/"
+          
+          # Install icon
+          if [ -f assets/icons/pcappuller.png ]; then
+            mkdir -p "$STAGE/usr/share/icons/hicolor/256x256/apps"
+            install -m 0644 assets/icons/pcappuller.png "$STAGE/usr/share/icons/hicolor/256x256/apps/pcappuller.png"
+            # Also install in standard pixmaps location
+            mkdir -p "$STAGE/usr/share/pixmaps"
+            install -m 0644 assets/icons/pcappuller.png "$STAGE/usr/share/pixmaps/pcappuller.png"
+          fi
+          
           NAME=pcappuller-gui
-          DESC="PCAPpuller GUI: fast PCAP window selector, merger, trimmer"
+          DESC="PCAPpuller GUI: fast PCAP window selector, merger, trimmer, and cleaner"
           URL="https://github.com/ktalons/daPCAPpuller"
           LICENSE=MIT
           MAINTAINER="Kyle Versluis"
-          # deb
+          
+          # Create post-install script
+          echo '#!/bin/bash' > postinst.sh
+          echo 'if command -v update-desktop-database >/dev/null 2>&1; then' >> postinst.sh
+          echo '  update-desktop-database /usr/share/applications' >> postinst.sh
+          echo 'fi' >> postinst.sh
+          echo 'if command -v gtk-update-icon-cache >/dev/null 2>&1; then' >> postinst.sh
+          echo '  gtk-update-icon-cache -f -t /usr/share/icons/hicolor' >> postinst.sh
+          echo 'fi' >> postinst.sh
+          chmod +x postinst.sh
+          
+          # deb with post-install script
           fpm -s dir -t deb -n "$NAME" -v "$VERSION" \
             --license "$LICENSE" --url "$URL" --maintainer "$MAINTAINER" \
             --description "$DESC" \
+            --after-install postinst.sh \
             -C "$STAGE" --prefix / \
             -p "release/${NAME}_${VERSION}_amd64.deb"
-          # rpm
+          
+          # rpm with post-install script
           fpm -s dir -t rpm -n "$NAME" -v "$VERSION" \
             --license "$LICENSE" --url "$URL" --maintainer "$MAINTAINER" \
             --description "$DESC" \
+            --after-install postinst.sh \
             -C "$STAGE" --prefix / \
             -p "release/${NAME}-${VERSION}-1.x86_64.rpm"
 
