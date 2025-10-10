@@ -5,7 +5,7 @@ import logging
 import shutil
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Callable
 import datetime as dt
 
 from .core import Window, candidate_files, precise_filter_parallel, build_output
@@ -22,9 +22,9 @@ class WorkflowState:
     window: Window
     include_patterns: List[str]
     exclude_patterns: List[str]
-    selected_files: List[Path] = None
-    processed_file: Path = None
-    cleaned_file: Path = None
+    selected_files: Optional[List[Path]] = None
+    processed_file: Optional[Path] = None
+    cleaned_file: Optional[Path] = None
     step1_complete: bool = False
     step2_complete: bool = False
     step3_complete: bool = False
@@ -81,8 +81,8 @@ class ThreeStepWorkflow:
         self,
         root_dirs: List[Path],
         window: Window,
-        include_patterns: List[str] = None,
-        exclude_patterns: List[str] = None
+        include_patterns: Optional[List[str]] = None,
+        exclude_patterns: Optional[List[str]] = None
     ) -> WorkflowState:
         """Initialize a new workflow state."""
         state = WorkflowState(
@@ -106,10 +106,10 @@ class ThreeStepWorkflow:
         state: WorkflowState,
         slop_min: int = 120,
         precise_filter: bool = True,
-        workers: int = None,
+        workers: Optional[int] = None,
         cache: Optional[CapinfosCache] = None,
         dry_run: bool = False,
-        progress_callback: Optional[callable] = None
+        progress_callback: Optional[Callable[[str, int, int], None]] = None
     ) -> WorkflowState:
         """
         Step 1: Select and move PCAP files based on time window and patterns.
@@ -188,8 +188,8 @@ class ThreeStepWorkflow:
         batch_size: int = 500,
         out_format: str = "pcapng",
         display_filter: Optional[str] = None,
-        trim_per_batch: bool = None,
-        progress_callback: Optional[callable] = None,
+        trim_per_batch: Optional[bool] = None,
+        progress_callback: Optional[Callable[[str, int, int], None]] = None,
         verbose: bool = False
     ) -> WorkflowState:
         """
@@ -253,7 +253,7 @@ class ThreeStepWorkflow:
         self,
         state: WorkflowState,
         options: Dict[str, Any],
-        progress_callback: Optional[callable] = None,
+        progress_callback: Optional[Callable[[str, int, int], None]] = None,
         verbose: bool = False
     ) -> WorkflowState:
         """
