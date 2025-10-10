@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 PCAPpuller CLI
-Refactored to use pcappuller.core with improved parsing, logging, and optional GUI support (gui_pcappuller.py).
+Enhanced with three-step workflow: Select -> Process -> Clean
+Solves file size inflation issues with smart pattern filtering.
 """
 from __future__ import annotations
 
@@ -9,8 +10,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import List
-import csv
+from typing import List, Dict, Any
 
 try:
     from tqdm import tqdm
@@ -18,16 +18,8 @@ except ImportError:
     print("tqdm not installed. Please run: python3 -m pip install tqdm", file=sys.stderr)
     sys.exit(1)
 
-from pcappuller.core import (
-    Window,
-    build_output,
-    candidate_files,
-    ensure_tools,
-    parse_workers,
-    precise_filter_parallel,
-    summarize_first_last,
-    collect_file_metadata,
-)
+from pcappuller.workflow import ThreeStepWorkflow, WorkflowState
+from pcappuller.core import Window, parse_workers
 from pcappuller.errors import PCAPPullerError
 from pcappuller.logging_setup import setup_logging
 from pcappuller.time_parse import parse_start_and_window
@@ -45,196 +37,321 @@ class ExitCodes:
 
 def parse_args():
     ap = argparse.ArgumentParser(
-        description="Select PCAPs by date/time and merge into a single file (up to 24 hours within a single calendar day).",
+        description="PCAPpuller: Three-step workflow for PCAP processing (Select -> Process -> Clean)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    ap.add_argument(
-        "--root",
-        required=True,
-        nargs="+",
-        help="One or more root directories (searched recursively).",
-    )
-    ap.add_argument("--start", required=True, help="Start datetime: 'YYYY-MM-DD HH:MM:SS' (local time).")
-    group = ap.add_mutually_exclusive_group(required=True)
-    group.add_argument("--minutes", type=int, help="Duration in minutes (1-1440). Clamped to end-of-day if it would cross midnight.")
-    group.add_argument("--end", help="End datetime (must be same calendar day as start).")
-
-    ap.add_argument("--out", help="Output path (required unless --dry-run).")
-    ap.add_argument("--batch-size", type=int, default=500, help="Files per merge batch.")
-    ap.add_argument("--slop-min", type=int, default=120, help="Extra minutes around window for mtime prefilter.")
-    ap.add_argument("--tmpdir", default=None, help="Directory for temporary files (defaults to system temp).")
-    ap.add_argument("--precise-filter", action="store_true", help="Use capinfos to drop files without packets in window.")
-    ap.add_argument("--workers", default="auto", help="Parallel workers for precise filter: 'auto' or an integer.")
-    ap.add_argument("--display-filter", default=None, help="Wireshark display filter applied via tshark after trimming.")
-    ap.add_argument("--out-format", choices=["pcap", "pcapng"], default="pcapng", help="Final capture format.")
-    ap.add_argument("--gzip", action="store_true", help="Compress final output to .gz (recommended to use .gz extension).")
-    ap.add_argument("--dry-run", action="store_true", help="Preview survivors and exit (no merge/trim).")
-    ap.add_argument("--trim-per-batch", action="store_true", help="Trim each merge batch before final merge (reduces temp size for long windows).")
-    ap.add_argument("--list-out", default=None, help="With --dry-run, write survivors to FILE (.txt or .csv).")
-    ap.add_argument("--debug-capinfos", type=int, default=0, help="Print parsed capinfos times for first N files (verbose only).")
-    ap.add_argument("--summary", action="store_true", help="With --dry-run, print min/max packet times across survivors.")
-    ap.add_argument("--verbose", action="store_true", help="Enable verbose logging and show external tool output.")
-    ap.add_argument("--report", default=None, help="Write CSV report for survivors (path,size,mtime,first,last).")
-    ap.add_argument("--cache", default="auto", help="Path to capinfos cache database or 'auto'.")
-    ap.add_argument("--no-cache", action="store_true", help="Disable capinfos metadata cache.")
-    ap.add_argument("--clear-cache", action="store_true", help="Clear the capinfos cache before running.")
-
+    
+    # Workflow control
+    ap.add_argument("--workspace", help="Workspace directory for the workflow (required for all operations)")
+    ap.add_argument("--step", choices=["1", "2", "3", "all"], default="all", 
+                   help="Which step to run: 1=Select, 2=Process, 3=Clean, all=Run all steps")
+    ap.add_argument("--resume", action="store_true", help="Resume from existing workflow state")
+    ap.add_argument("--status", action="store_true", help="Show workflow status and exit")
+    
+    # Step 1: Selection parameters
+    step1_group = ap.add_argument_group("Step 1: File Selection")
+    step1_group.add_argument("--root", nargs="+", help="Root directories to search (required for new workflow)")
+    step1_group.add_argument("--include-pattern", nargs="*", default=["*.chunk_*.pcap"], 
+                           help="Include files matching these patterns")
+    step1_group.add_argument("--exclude-pattern", nargs="*", default=["*.sorted.pcap", "*.s256.pcap"], 
+                           help="Exclude files matching these patterns")
+    step1_group.add_argument("--slop-min", type=int, default=120, help="Extra minutes around window for mtime prefilter")
+    step1_group.add_argument("--precise-filter", action="store_true", default=True, help="Use capinfos for precise filtering")
+    step1_group.add_argument("--no-precise-filter", action="store_false", dest="precise_filter", 
+                           help="Skip precise filtering, use mtime only")
+    
+    # Time window (required for new workflow)
+    time_group = ap.add_argument_group("Time Window")
+    time_group.add_argument("--start", help="Start datetime: 'YYYY-MM-DD HH:MM:SS' (local time)")
+    window_group = time_group.add_mutually_exclusive_group()
+    window_group.add_argument("--minutes", type=int, help="Duration in minutes (1-1440)")
+    window_group.add_argument("--end", help="End datetime (must be same calendar day as start)")
+    
+    # Step 2: Processing parameters  
+    step2_group = ap.add_argument_group("Step 2: Processing")
+    step2_group.add_argument("--batch-size", type=int, default=500, help="Files per merge batch")
+    step2_group.add_argument("--out-format", choices=["pcap", "pcapng"], default="pcapng", help="Output format")
+    step2_group.add_argument("--display-filter", help="Wireshark display filter")
+    step2_group.add_argument("--trim-per-batch", action="store_true", help="Trim each batch before final merge")
+    step2_group.add_argument("--no-trim-per-batch", action="store_false", dest="trim_per_batch", 
+                           help="Only trim final merged file")
+    
+    # Step 3: Cleaning parameters
+    step3_group = ap.add_argument_group("Step 3: Cleaning")
+    step3_group.add_argument("--snaplen", type=int, help="Truncate packets to N bytes")
+    step3_group.add_argument("--convert-to-pcap", action="store_true", help="Convert final output to pcap format")
+    step3_group.add_argument("--gzip", action="store_true", help="Compress final output")
+    
+    # General options
+    ap.add_argument("--workers", default="auto", help="Parallel workers: 'auto' or integer")
+    ap.add_argument("--tmpdir", help="Temporary files directory")
+    ap.add_argument("--cache", default="auto", help="Capinfos cache database path or 'auto'")
+    ap.add_argument("--no-cache", action="store_true", help="Disable capinfos cache")
+    ap.add_argument("--clear-cache", action="store_true", help="Clear capinfos cache before running")
+    ap.add_argument("--dry-run", action="store_true", help="Show what would be selected/processed without doing it")
+    ap.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+    
     args = ap.parse_args()
-
-    if not args.dry_run and not args.out:
-        ap.error("--out is required unless --dry-run is set.")
-
+    
+    # Validation
+    if not args.workspace:
+        ap.error("--workspace is required")
+    
+    if args.status:
+        return args
+    
+    if not args.resume:
+        # New workflow requires certain parameters
+        if not args.root:
+            ap.error("--root is required for new workflow (use --resume to continue existing)")
+        if not args.start:
+            ap.error("--start is required for new workflow")
+        if not args.minutes and not args.end:
+            ap.error("Either --minutes or --end is required for new workflow")
+    
     if args.minutes is not None and not (1 <= args.minutes <= 1440):
-        ap.error("--minutes must be between 1 and 1440.")
+        ap.error("--minutes must be between 1 and 1440")
+    
     return args
 
 
-def write_list(paths: List[Path], list_out: Path):
-    list_out.parent.mkdir(parents=True, exist_ok=True)
-    if list_out.suffix.lower() == ".csv":
-        with open(list_out, "w", encoding="utf-8") as f:
-            f.write("path\n")
-            for p in paths:
-                f.write(f"{p}\n")
-    else:
-        with open(list_out, "w", encoding="utf-8") as f:
-            for p in paths:
-                f.write(str(p) + "\n")
+def setup_progress_callback(desc: str) -> tuple:
+    """Setup tqdm progress bar with callback function."""
+    pbar = None
+    
+    def progress_callback(phase: str, current: int, total: int):
+        nonlocal pbar
+        if pbar is None or pbar.total != total:
+            if pbar:
+                pbar.close()
+            pbar = tqdm(total=total, desc=f"{desc} ({phase})", unit="items")
+        pbar.n = current
+        pbar.refresh()
+        if current >= total:
+            pbar.close()
+            pbar = None
+    
+    return progress_callback, lambda: pbar.close() if pbar else None
+
+
+def run_step1(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> WorkflowState:
+    """Execute Step 1: File Selection."""
+    print("🔍 Step 1: Selecting and copying PCAP files...")
+    
+    # Setup cache
+    cache = None
+    if not args.no_cache:
+        cache_path = default_cache_path() if args.cache == "auto" else Path(args.cache)
+        cache = CapinfosCache(cache_path)
+        if args.clear_cache:
+            cache.clear()
+    
+    # Setup progress tracking
+    progress_cb, cleanup_pb = setup_progress_callback("Step 1: File Selection")
+    
+    try:
+        workers = parse_workers(args.workers, 1000)  # Estimate for auto calculation
+        
+        state = workflow.step1_select_and_move(
+            state=state,
+            slop_min=args.slop_min,
+            precise_filter=args.precise_filter,
+            workers=workers,
+            cache=cache,
+            dry_run=args.dry_run,
+            progress_callback=progress_cb
+        )
+        
+        if not args.dry_run:
+            print(f"✅ Step 1 complete: {len(state.selected_files)} files selected")
+            total_size_mb = sum(f.stat().st_size for f in state.selected_files) / (1024*1024)
+            print(f"   Total size: {total_size_mb:.1f} MB")
+        
+        return state
+        
+    finally:
+        cleanup_pb()
+        if cache:
+            cache.close()
+
+
+def run_step2(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> WorkflowState:
+    """Execute Step 2: Processing (merge, trim, filter)."""
+    print("⚙️  Step 2: Processing files (merge, trim, filter)...")
+    
+    progress_cb, cleanup_pb = setup_progress_callback("Step 2: Processing")
+    
+    try:
+        trim_per_batch = None
+        if args.trim_per_batch is not None:
+            trim_per_batch = args.trim_per_batch
+        
+        state = workflow.step2_process(
+            state=state,
+            batch_size=args.batch_size,
+            out_format=args.out_format,
+            display_filter=args.display_filter,
+            trim_per_batch=trim_per_batch,
+            progress_callback=progress_cb,
+            verbose=args.verbose
+        )
+        
+        print(f"✅ Step 2 complete: Processed file saved")
+        if state.processed_file.exists():
+            size_mb = state.processed_file.stat().st_size / (1024*1024)
+            print(f"   Output: {state.processed_file}")
+            print(f"   Size: {size_mb:.1f} MB")
+        
+        return state
+        
+    finally:
+        cleanup_pb()
+
+
+def run_step3(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> WorkflowState:
+    """Execute Step 3: Cleaning (headers, metadata removal)."""
+    # Collect cleaning options
+    clean_options = {}
+    if args.snaplen:
+        clean_options['snaplen'] = args.snaplen
+    if args.convert_to_pcap:
+        clean_options['convert_to_pcap'] = True
+    if args.gzip:
+        clean_options['gzip'] = True
+    
+    if not clean_options:
+        print("⏭️  Step 3: No cleaning options specified, skipping...")
+        state.step3_complete = True
+        state.cleaned_file = state.processed_file  # Use processed file as final
+        state.save(workflow.state_file)
+        return state
+    
+    print("🧹 Step 3: Cleaning output (removing headers/metadata)...")
+    
+    progress_cb, cleanup_pb = setup_progress_callback("Step 3: Cleaning")
+    
+    try:
+        state = workflow.step3_clean(
+            state=state,
+            options=clean_options,
+            progress_callback=progress_cb,
+            verbose=args.verbose
+        )
+        
+        print(f"✅ Step 3 complete: Cleaned file saved")
+        if state.cleaned_file.exists():
+            size_mb = state.cleaned_file.stat().st_size / (1024*1024)
+            print(f"   Output: {state.cleaned_file}")
+            print(f"   Size: {size_mb:.1f} MB")
+        
+        return state
+        
+    finally:
+        cleanup_pb()
+
+
+def show_status(workflow: ThreeStepWorkflow):
+    """Show workflow status."""
+    try:
+        state = workflow.load_workflow()
+        summary = workflow.get_summary(state)
+        
+        print(f"📊 Workflow Status")
+        print(f"   Workspace: {summary['workspace_dir']}")
+        print(f"   Time window: {summary['window']}")
+        print()
+        
+        steps = summary['steps_complete']
+        print(f"   Step 1 (Select): {'✅ Complete' if steps['step1_select'] else '⏳ Pending'}")
+        if 'selected_files' in summary:
+            sf = summary['selected_files']
+            print(f"            Files: {sf['count']}, Size: {sf['total_size_mb']} MB")
+        
+        print(f"   Step 2 (Process): {'✅ Complete' if steps['step2_process'] else '⏳ Pending'}")
+        if 'processed_file' in summary:
+            pf = summary['processed_file']
+            print(f"            File: {Path(pf['path']).name}, Size: {pf['size_mb']} MB")
+        
+        print(f"   Step 3 (Clean): {'✅ Complete' if steps['step3_clean'] else '⏳ Pending'}")
+        if 'cleaned_file' in summary:
+            cf = summary['cleaned_file']
+            print(f"            File: {Path(cf['path']).name}, Size: {cf['size_mb']} MB")
+        
+    except PCAPPullerError as e:
+        print(f"❌ No workflow found: {e}")
 
 
 def main():
     args = parse_args()
     setup_logging(args.verbose)
-
-    try:
-        start, end = parse_start_and_window(args.start, args.minutes, args.end)
-        window = Window(start=start, end=end)
-    except Exception as e:
-        print(str(e), file=sys.stderr)
-        sys.exit(ExitCodes.TIME)
-
-    try:
-        need_precise = args.precise_filter or bool(args.report)
-        ensure_tools(args.display_filter, precise_filter=need_precise)
-
-        # Cache setup
-        cache = None
-        if not args.no_cache:
-            cache_path = default_cache_path() if args.cache == "auto" else Path(args.cache)
-            cache = CapinfosCache(cache_path)
-            if args.clear_cache:
-                cache.clear()
-
-        roots = [Path(r) for r in args.root]
-        pre_candidates = candidate_files(roots, window, args.slop_min)
-
-        workers = parse_workers(args.workers, total_files=len(pre_candidates))
-        if args.precise_filter and pre_candidates:
-            # tqdm progress bridge
-            prog_total = len(pre_candidates)
-            pbar = tqdm(total=prog_total, desc="Precise filtering", unit="file")
-
-            def cb(_phase, cur, _tot):
-                pbar.n = cur
-                pbar.refresh()
-
-            candidates = precise_filter_parallel(pre_candidates, window, workers, args.debug_capinfos, progress=cb, cache=cache)
-            pbar.close()
-        else:
-            candidates = pre_candidates
-
-        if args.dry_run:
-            print("Dry run:")
-            print(f"  Found by mtime prefilter: {len(pre_candidates)}")
-            if args.precise_filter:
-                print(f"  Survived precise filter: {len(candidates)}")
-            else:
-                print(f"  Survivors (mtime-only):  {len(candidates)}")
-            if args.list_out:
-                write_list(candidates, Path(args.list_out))
-                print(f"  Wrote list to: {args.list_out}")
-            if args.report and candidates:
-                md = collect_file_metadata(candidates, workers=max(1, workers // 2), cache=cache)
-                outp = Path(args.report)
-                outp.parent.mkdir(parents=True, exist_ok=True)
-                with open(outp, "w", newline="", encoding="utf-8") as f:
-                    w = csv.writer(f)
-                    w.writerow(["path","size_bytes","mtime_epoch","mtime_utc","first_epoch","last_epoch","first_utc","last_utc"])
-                    import datetime as _dt
-                    for r in md:
-                        m_utc = _dt.datetime.fromtimestamp(r["mtime"], _dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%fZ")
-                        fu = _dt.datetime.fromtimestamp(r["first"], _dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%fZ") if r["first"] is not None else ""
-                        lu = _dt.datetime.fromtimestamp(r["last"], _dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%fZ") if r["last"] is not None else ""
-                        w.writerow([str(r["path"]), r["size"], r["mtime"], m_utc, r["first"], r["last"], fu, lu])
-                print(f"  Wrote report to: {outp}")
-            if args.summary and candidates:
-                s = summarize_first_last(candidates, workers=max(1, workers // 2), cache=cache)
-                if s:
-                    import datetime as _dt
-                    f_utc = _dt.datetime.fromtimestamp(s[0], _dt.timezone.utc)
-                    l_utc = _dt.datetime.fromtimestamp(s[1], _dt.timezone.utc)
-                    print(f"  Packet time range across survivors (UTC): {f_utc}Z .. {l_utc}Z")
-            sys.exit(ExitCodes.OK)
-
-        if not candidates:
-            print("No target PCAP files found after filtering.", file=sys.stderr)
-            sys.exit(ExitCodes.OK)
-
-        # Merge/Trim/Filter/Write with progress bars
-        out_path = Path(args.out)
-        # merge batches
-        def pb_phase(phase: str, cur: int, tot: int):
-            pass  # placeholder for potential future CLI pb per phase
-
-        # Optional reporting before writing
-        if args.report and candidates:
-            md = collect_file_metadata(candidates, workers=max(1, workers // 2), cache=cache)
-            outp = Path(args.report)
-            outp.parent.mkdir(parents=True, exist_ok=True)
-            with open(outp, "w", newline="", encoding="utf-8") as f:
-                w = csv.writer(f)
-                w.writerow(["path","size_bytes","mtime_epoch","mtime_utc","first_epoch","last_epoch","first_utc","last_utc"])
-                import datetime as _dt
-                for r in md:
-                    m_utc = _dt.datetime.fromtimestamp(r["mtime"], _dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%fZ")
-                    fu = _dt.datetime.fromtimestamp(r["first"], _dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%fZ") if r["first"] is not None else ""
-                    lu = _dt.datetime.fromtimestamp(r["last"], _dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%fZ") if r["last"] is not None else ""
-                    w.writerow([str(r["path"]), r["size"], r["mtime"], m_utc, r["first"], r["last"], fu, lu])
-            print(f"Wrote report to: {outp}")
-
-        duration_minutes = int((window.end - window.start).total_seconds() // 60)
-        trim_per_batch = args.trim_per_batch or (duration_minutes > 60)
-
-        result = build_output(
-            candidates,
-            window,
-            out_path,
-            Path(args.tmpdir) if args.tmpdir else None,
-            args.batch_size,
-            args.out_format,
-            args.display_filter,
-            args.gzip,
-            progress=None,
-            verbose=args.verbose,
-            trim_per_batch=trim_per_batch,
-        )
-        print(f"Done. Wrote: {result}")
-        if cache:
-            cache.close()
+    
+    workspace = Path(args.workspace)
+    workflow = ThreeStepWorkflow(workspace)
+    
+    # Status check
+    if args.status:
+        show_status(workflow)
         sys.exit(ExitCodes.OK)
-
+    
+    try:
+        # Load or create workflow state
+        if args.resume:
+            print("📂 Resuming existing workflow...")
+            state = workflow.load_workflow()
+        else:
+            print("🚀 Starting new workflow...")
+            # Parse time window
+            start, end = parse_start_and_window(args.start, args.minutes, args.end)
+            window = Window(start=start, end=end)
+            
+            # Initialize new workflow
+            root_dirs = [Path(r) for r in args.root]
+            state = workflow.initialize_workflow(
+                root_dirs=root_dirs,
+                window=window,
+                include_patterns=args.include_pattern,
+                exclude_patterns=args.exclude_pattern
+            )
+        
+        # Run requested steps
+        if args.step in ["1", "all"]:
+            if not state.step1_complete:
+                state = run_step1(workflow, state, args)
+                if args.dry_run:
+                    sys.exit(ExitCodes.OK)
+            else:
+                print("✅ Step 1 already complete")
+        
+        if args.step in ["2", "all"]:
+            if not state.step2_complete:
+                state = run_step2(workflow, state, args)
+            else:
+                print("✅ Step 2 already complete")
+        
+        if args.step in ["3", "all"]:
+            if not state.step3_complete:
+                state = run_step3(workflow, state, args)
+            else:
+                print("✅ Step 3 already complete")
+        
+        # Final summary
+        if args.step == "all" or (args.step == "3" and state.step3_complete):
+            final_file = state.cleaned_file or state.processed_file
+            if final_file and final_file.exists():
+                size_mb = final_file.stat().st_size / (1024*1024)
+                print()
+                print(f"🎉 Workflow complete!")
+                print(f"   Final output: {final_file}")
+                print(f"   Size: {size_mb:.1f} MB")
+        
+        sys.exit(ExitCodes.OK)
+        
     except PCAPPullerError as e:
         logging.error(str(e))
         sys.exit(ExitCodes.OSERR if "OS error" in str(e) else ExitCodes.TOOL)
     except Exception:
         logging.exception("Unexpected error")
         sys.exit(1)
-    finally:
-        try:
-            if 'cache' in locals() and cache:
-                cache.close()
-        except Exception:
-            pass
 
 
 if __name__ == "__main__":
