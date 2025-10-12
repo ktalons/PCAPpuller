@@ -146,6 +146,7 @@ venv.bak/
 
 # Local test data
 _smoke_data/
+_smoke_ws*/
 
 # Spyder project settings
 .spyderproject
