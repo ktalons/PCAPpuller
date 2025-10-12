@@ -1,7 +1,15 @@
 # PCAPpuller 👊
-## A fast PCAP window selector, merger, and trimmer ⏩
 
-PCAPpuller helps you pull just the packets you need from large rolling PCAP collections.
+[![GitHub release](https://img.shields.io/github/v/release/ktalons/daPCAPpuller)](https://github.com/ktalons/daPCAPpuller/releases/latest)
+[![CI](https://github.com/ktalons/daPCAPpuller/workflows/CI/badge.svg)](https://github.com/ktalons/daPCAPpuller/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+
+## A fast PCAP window selector, merger, trimmer, and cleaner ⏩
+
+PCAPpuller is a comprehensive network analysis tool with a **three-step workflow** that helps you extract, clean, and analyze packets from large PCAP collections with enterprise-grade filtering capabilities.
+
+**🔧 NEW: Solves file size inflation issues** with smart pattern filtering that prevents duplicate data processing.
 
 ---
 
@@ -45,44 +53,63 @@ Requirements for the GUI binary: Wireshark CLI tools (tshark, mergecap, editcap,
 - Windows: double-click PCAPpullerGUI-windows.exe
 
 ### Quickstart (GUI)
-1) Pick Root folder(s) containing your PCAP/PCAPNG files
-2) Set Start time and Minutes (or use End time via Advanced if available)
-3) Optional: Precise filter, Display filter (Wireshark syntax), Gzip
-4) Choose an output file path
-5) Click Run — progress will appear; cancel anytime
+**PCAP Window Extraction:**
+1. Pick Root folder(s) containing your PCAP/PCAPNG files
+2. Set Start time and Duration (Hours/Minutes)
+3. Optional: Precise filter, Display filter (300+ filters available), Gzip
+4. Choose output file path
+5. Click Run — progress will appear; cancel anytime
+
+**PCAP Cleaning:**
+1. Click "Clean..." button
+2. Select input PCAP/PCAPNG file
+3. Configure options: format conversion, reordering, snaplen, filtering
+4. Optional: time window trimming, output splitting
+5. Click "Clean" — creates optimized capture files
 
 ---
 
-## What’s new ✨
-- Refactored into a reusable core library (`pcappuller`) for stability and testability.
-- Deterministic `capinfos` parsing and improved error handling.
-- Flexible datetime parsing (`YYYY-MM-DD HH:MM:SS`, ISO-like, `Z`).
-- `--end` as an alternative to `--minutes` (mutually exclusive).
-- Multiple roots supported: `--root /dir1 /dir2 /dir3`.
-- `--verbose` logging shows external tool commands/output.
-- Dry-run `--summary` prints min/max packet times across survivors (UTC).
-- Optional capinfos metadata cache (enabled by default) to speed up repeated runs.
-- GUI with folder pickers, checkboxes, and progress.
+## What's New in v0.3.0 ✨
+- **🔧 SIZE INFLATION FIX**: Solves 3x file size inflation with smart pattern filtering
+- **📋 Three-Step Workflow**: Select → Process → Clean for better control and efficiency
+- **🎯 Smart File Filtering**: Automatically excludes duplicate/consolidated files
+- **💾 Workspace Management**: Organized temporary file handling with resumable operations
+- **🔄 Enhanced GUI**: Pattern settings, step-by-step progress, advanced controls
+- **📏 Documentation**: Complete workflow guide and migration assistance
 
-## Features  🧰
-- 2️⃣ Two-phase selection
-  - Fast prefilter by file mtime.
-  - Optional precise filter using `capinfos -a -e -S` to keep only files whose packets overlap the target window.
-- :electron: Parallel capinfos `--workers auto | N` for thousands of files.
-- 🧩 Batch merges with mergecap to avoid huge argv/memory usage.
-- ✂️ Exact time trim using `editcap -A/-B`.
-- 🦈 Display filter `tshark -Y "<filter>"` after trimming (e.g. dns, tcp.port==443).
-- 🏁 Output control: `--out-format pcap | pcapng` and optional `--gzip`.
-- 🧪 Dry run to preview survivors and optional `--list-out .csv | .txt` to save the list.
-- ✨ Robust temp handling `--tmpdir` and tqdm progress bars.
+## Core Features 🧰
+- **📋 Three-Step Workflow**: Select → Process → Clean with resumable operations
+- **🔧 Size Inflation Fix**: Smart pattern filtering prevents duplicate data processing  
+- **🗂 PCAP Window Extraction**: Pull exact time windows from large rolling collections
+- **🧵 PCAP Cleaning**: Convert, reorder, truncate, filter, and split captures
+- **🎯 Pattern Filtering**: Automatically exclude consolidated/backup files
+- **⚡ Parallel Processing**: Multi-threaded capinfos analysis for thousands of files
+- **🧩 Smart Batching**: Efficient mergecap operations to avoid memory issues
+- **✂️ Precise Trimming**: Exact time boundaries with editcap
+- **🔍 Advanced Filtering**: 300+ Wireshark display filters for comprehensive analysis
+- **🏁 Format Control**: Output as pcap/pcapng with optional gzip compression
+- **🧪 Audit Mode**: Dry-run with detailed reporting and survivor lists
+- **🎨 GUI Interface**: Enhanced desktop application with step-by-step progress
 ___
 ## How it works ⚙️
-1. Scan --root for *.pcap, *.pcapng, *.cap whose mtime falls within [start-slop, end+slop].
-2. (Optional) Refine with capinfos -a -e -S in parallel to keep only files that truly overlap the window.
-3. Merge candidates in batches with mergecap (limits memory and argv size).
-4. Trim the merged file to [start, end] with editcap -A/-B.
-5. (Optional) Filter with tshark -Y "<display filter>".
-6. Write as pcap/pcapng, optionally gzip.
+
+### Three-Step Workflow:
+**Step 1: Select & Filter**
+1. Scan --root directories for PCAP files
+2. Apply include/exclude patterns (e.g., include `*.chunk_*.pcap`, exclude `*.sorted.pcap`)
+3. Filter by mtime within [start-slop, end+slop]
+4. (Optional) Precise filtering with capinfos to verify packet times
+5. Copy selected files to organized workspace
+
+**Step 2: Process** 
+6. Merge selected files in efficient batches with mergecap
+7. Trim merged file to exact [start, end] window with editcap
+8. (Optional) Apply display filters with tshark
+
+**Step 3: Clean (Optional)**
+9. Truncate packets (snaplen) to save space
+10. Convert formats (pcapng → pcap)
+11. Compress with gzip
 ___
 ## Prerequisites ☑️
 - For the GUI binary: Wireshark CLI tools available on PATH (tshark, mergecap, editcap, capinfos). No Python required.
@@ -109,50 +136,131 @@ ___
 > If Wireshark CLI tools aren’t in PATH, the app will also look in common install dirs.
 ___
 ## Quick Usage ⭐
-### Installed (via console scripts)
+
+### Three-Step Workflow (Recommended)
+```bash
+# Complete workflow - solves size inflation issues!
+pcap-puller --workspace /tmp/job \
+  --source /mnt/dir \
+  --start "YYYY-MM-DD HH:MM:SS" \
+  --minutes 15 \
+  --selection-mode symlink \
+  --out /path/to/output.pcapng \
+  --tmpdir /path/on/large/volume/tmp \
+  --snaplen 256 \
+  --gzip
+
+# Individual steps for more control
+pcap-puller --workspace /tmp/job --step 1 --source /mnt/dir --start "YYYY-MM-DD HH:MM:SS" --minutes 15 --selection-mode manifest  # Select (no data copy)
+pcap-puller --workspace /tmp/job --step 2 --resume --display-filter "dns" --out /path/to/output.pcapng --tmpdir /big/tmp  # Process  
+pcap-puller --workspace /tmp/job --step 3 --resume --snaplen 256 --gzip  # Clean
+
+# Check status anytime
+pcap-puller --workspace /tmp/job --status
+```
+
+### Legacy Mode (console scripts)
 - `pcap-puller --root /mnt/dir --start "YYYY-MM-DD HH:MM:SS" --minutes 15 --out out.pcapng`
 - `pcap-puller --root /mnt/dir1 /mnt/dir2 --start "YYYY-MM-DD HH:MM:SS" --end "YYYY-MM-DD HH:MM:SS" --out out.pcapng`
-- `pcap-puller --root /mnt/dir --start "YYYY-MM-DD HH:MM:SS" --minutes 15 --precise-filter --workers auto --display-filter "dns" --gzip --verbose`
 - Dry-run: `pcap-puller --root /mnt/dir --start "YYYY-MM-DD HH:MM:SS" --minutes 15 --dry-run --list-out list.csv --summary --report survivors.csv`
 
+### Clean a large/processed capture
+**GUI**: Click "Clean..." button for intuitive interface with all options
+
+**CLI Examples:**
+- Convert to classic pcap, reorder, truncate, filter, and split:
+  - `pcap-clean --input /path/to/big.pcapng --snaplen 256 --filter "tcp || udp || icmp || icmpv6" --split-seconds 60`
+- Keep original format and just reorder + snaplen:
+  - `pcap-clean --input /path/to/big.pcapng --keep-format --snaplen 128`
+- Trim to time window and filter to specific host/port:
+  - `pcap-clean --input /path/file.pcap --start "2025-10-02 10:00:00" --end "2025-10-02 10:15:00" --filter "ip.addr==10.0.0.5 && tcp.port==443"`
+- Custom output directory:
+  - `pcap-clean --input /path/file.pcapng --out-dir /tmp/cleaned/ --snaplen 256`
+
 ### Direct (without install)
-`python3 PCAPpuller.py --root /mnt/your-rootdir --start "YYYY-MM-DD HH:MM:SS" --minutes <1-60> --out /path/to/output.pcapng`
-`python3 PCAPpuller.py --root /mnt/dir1 /mnt/dir2 --start "YYYY-MM-DD HH:MM:SS" --end "YYYY-MM-DD HH:MM:SS" --out /path/to/output.pcapng`
-`python3 PCAPpuller.py --root /mnt/your-rootdir --start "YYYY-MM-DD HH:MM:SS" --minutes <1-60> --out /path/to/output_dns.pcap.gz --out-format pcap --tmpdir /big/volume/tmp --batch-size 500 --slop-min 120 --precise-filter --workers auto --display-filter "dns" --gzip --verbose`
-`python3 PCAPpuller.py --root /mnt/your-rootdir --start "YYYY-MM-DD HH:MM:SS" --minutes <1-60> --precise-filter --workers auto --dry-run --list-out /path/to/list.csv --summary`
+```bash
+# New three-step workflow (recommended)
+python3 PCAPpuller.py --workspace /tmp/job --source /mnt/dir --start "YYYY-MM-DD HH:MM:SS" --minutes 30 --snaplen 256 --gzip
+
+# Individual steps
+python3 PCAPpuller.py --workspace /tmp/job --step 1 --source /mnt/dir --start "YYYY-MM-DD HH:MM:SS" --minutes 30
+python3 PCAPpuller.py --workspace /tmp/job --step 2 --resume --display-filter "dns" 
+python3 PCAPpuller.py --workspace /tmp/job --step 3 --resume --snaplen 256 --gzip
+
+# Legacy mode (may cause size inflation)
+python3 PCAPpuller_legacy.py --root /mnt/dir --start "YYYY-MM-DD HH:MM:SS" --minutes 30 --out output.pcapng
+```
 ___
 ## Arguments 💥
 ### Required ❗
-> `--root </root/directory ...>` — one or more directories to search.<br>
+> `--workspace </workspace/path>` — workspace directory for three-step workflow (NEW).<br>
+> `--source </source/directory ...>` — one or more directories to search. (`--root` is still accepted as an alias.)<br>
 > `--start "YYYY-MM-DD HH:MM:SS"` — window start (local time).<br>
-> `--minutes <1–60>` — duration; must stay within a single calendar day. Or use `--end` with same-day end time.<br>
-> `--out </output/path>` — output file (not required if you use --dry-run).<br>
+> `--minutes <1–1440>` — duration; must stay within a single calendar day. Or use `--end` with same-day end time.<br>
 ### Optional ❓
+
+**Workflow Control:**
+> `--step {1,2,3,all}` — which step to run (default: all).<br>
+> `--resume` — resume from existing workflow state.<br>
+> `--status` — show workflow status and exit.<br>
+
+**Pattern Filtering (Step 1):
+> `--include-pattern [PATTERNS...]` — include files matching patterns (default: *.pcap, *.pcapng).<br>
+> `--exclude-pattern [PATTERNS...]` — optional excludes (none by default).<br>
+> `--selection-mode {manifest|symlink}` — how to materialize selections. Default: manifest. Use `symlink` to browse selections in a workspace folder.<br>
+
+**Processing Options:**
 > `--end <YYYY-MM-DD HH:MM:SS>` — end time instead of `--minutes` (must be same day as `--start`).<br>
-> `--tmpdir </temp/path>` — where to write temporary/intermediate files. **Highly recommended** on a large volume (e.g., the NAS).<br>
 > `--batch-size <INT>` — files per merge batch (default: 500).<br>
 > `--slop-min <INT>` — mtime prefilter slack minutes (default: 120).<br>
 > `--precise-filter` — use capinfos first/last packet times to keep only overlapping files.<br>
 > `--workers <auto|INT>` — concurrency for precise filter (default: auto ≈ 2×CPU, gently capped).<br>
 > `--display-filter "<Wireshark filter>"` — post-trim filter via tshark (e.g., "dns", "tcp.port==443").<br>
 > `--out-format {pcap|pcapng}` — final capture format (default: pcapng).<br>
-> `--gzip` — gzip-compress the final output (writes .gz).<br>
+> `--out </path/to/output.pcapng>` — explicit output path for Step 2 (otherwise written under workspace).<br>
+> `--tmpdir </path/to/tmp>` — directory for temporary files during Step 2 (overrides system/workspace tmp).<br>
+
+**Cleaning Options (Step 3):**
+> `--snaplen <INT>` — truncate packets to N bytes.<br>
+> `--convert-to-pcap` — force conversion to pcap format.<br>
+> `--gzip` — gzip-compress the final output.<br>
+
+**Other:**
 > `--dry-run` — selection only; no merge/trim/write.<br>
-> `--list-out <FILE.{txt|csv}>` — with `--dry-run`, write survivor list to file.<br>
-> `--report <FILE.csv>` — write a CSV report for survivors with path,size,mtime,first,last (uses cache/capinfos).<br>
-> `--summary` — with `--dry-run`, print min/max packet times across survivors (UTC).
-> `--verbose` — print debug logs and show external tool output.
+> `--verbose` — print debug logs and show external tool output.<br>
 ___
-## Tips 🗯️ 
-- Use --tmpdir on a large volume (e.g., the NAS) if your /tmp is small.
-- --precise-filter reduces I/O by skipping irrelevant files; tune --workers to match NAS throughput.
+## Tips 🗿
+
+**Size Inflation Fix:**
+- **NEW**: Use `--workspace` to avoid 3x file size inflation issues
+- Pattern filtering automatically excludes large consolidated files
+- Dry-run first: `--step 1 --dry-run` to verify file selection
+
+**Performance:**
+- `--precise-filter` reduces I/O by skipping irrelevant files; tune `--workers` to match NAS throughput
+- Individual steps: Run `--step 1`, then `--step 2`, then `--step 3` for better control
+- Resume operations: Use `--resume` to continue from failed steps
+
+**Storage & Caching:**
+- Workspace management: Files organized in `workspace/{selected,processed,cleaned}` directories  
 - Metadata caching speeds up repeated runs. Default cache location:
   - macOS/Linux: ~/.cache/pcappuller/capinfos.sqlite (respects XDG_CACHE_HOME)
   - Windows: %LOCALAPPDATA%\pcappuller\capinfos.sqlite
-  - Control with `--cache <PATH>`, disable with `--no-cache`, clear with `--clear-cache`.
-- Display filters use Wireshark display syntax (not capture filters).
-- For auditing, run --dry-run --list-out list.csv first; add `--summary` to see min/max packet times.
+  - Control with `--cache <PATH>`, disable with `--no-cache`, clear with `--clear-cache`
+
+**Workflow:**
+- Display filters use Wireshark display syntax (not capture filters)
+- Cleaning options in Step 3 can reduce final file size by 60-90%
+- Check status anytime: `--workspace /path --status`
 ___
+## App Icons 🖼️
+- Place your icons under assets/
+  - macOS: PCAPpuller.icns
+  - Linux: PCAPpuller.png (e.g., install to /usr/share/icons/hicolor/512x512/apps/PCAPpuller.png)
+  - Windows: PCAPpuller.ico
+- During development, the GUI attempts to load assets/PCAPpuller.ico/.png/.icns and set the window icon automatically.
+- The Linux desktop entry now uses Name=PCAPpuller and Exec=PCAPpuller with Icon=PCAPpuller.
+
 ## Development 🛠️
 - Install tooling (in a virtualenv):
   - python3 -m pip install -e .[datetime]

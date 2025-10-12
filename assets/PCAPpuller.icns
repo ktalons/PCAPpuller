@@ -1,0 +1,7 @@
+This is a placeholder for the PCAPpuller application icon (ICNS format).
+
+Replace this file with your real macOS .icns icon:
+- Name: PCAPpuller.icns
+- Place under assets/ for development window icon (best-effort on macOS)
+
+For distribution with a bundled app, configure your bundler (py2app, PyInstaller, Briefcase, etc.) to use this .icns file.

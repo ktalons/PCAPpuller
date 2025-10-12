@@ -1,11 +1,16 @@
+#!/usr/bin/env python3
+"""
+PCAPpuller CLI
+Refactored to use pcappuller.core with improved parsing, logging, and optional GUI support (gui_pcappuller.py).
+"""
 from __future__ import annotations
 
 import argparse
-import csv
 import logging
 import sys
 from pathlib import Path
 from typing import List
+import csv
 
 try:
     from tqdm import tqdm
@@ -13,20 +18,20 @@ except ImportError:
     print("tqdm not installed. Please run: python3 -m pip install tqdm", file=sys.stderr)
     sys.exit(1)
 
-from .cache import CapinfosCache, default_cache_path
-from .core import (
+from pcappuller.core import (
     Window,
     build_output,
     candidate_files,
-    collect_file_metadata,
     ensure_tools,
     parse_workers,
     precise_filter_parallel,
     summarize_first_last,
+    collect_file_metadata,
 )
-from .errors import PCAPPullerError
-from .logging_setup import setup_logging
-from .time_parse import parse_start_and_window
+from pcappuller.errors import PCAPPullerError
+from pcappuller.logging_setup import setup_logging
+from pcappuller.time_parse import parse_start_and_window
+from pcappuller.cache import CapinfosCache, default_cache_path
 
 
 class ExitCodes:
@@ -175,6 +180,12 @@ def main():
             print("No target PCAP files found after filtering.", file=sys.stderr)
             sys.exit(ExitCodes.OK)
 
+        # Merge/Trim/Filter/Write with progress bars
+        out_path = Path(args.out)
+        # merge batches
+        def pb_phase(phase: str, cur: int, tot: int):
+            pass  # placeholder for potential future CLI pb per phase
+
         # Optional reporting before writing
         if args.report and candidates:
             md = collect_file_metadata(candidates, workers=max(1, workers // 2), cache=cache)
@@ -191,14 +202,13 @@ def main():
                     w.writerow([str(r["path"]), r["size"], r["mtime"], m_utc, r["first"], r["last"], fu, lu])
             print(f"Wrote report to: {outp}")
 
-        # Determine if we should trim per batch
         duration_minutes = int((window.end - window.start).total_seconds() // 60)
         trim_per_batch = args.trim_per_batch or (duration_minutes > 60)
 
         result = build_output(
             candidates,
             window,
-            Path(args.out),
+            out_path,
             Path(args.tmpdir) if args.tmpdir else None,
             args.batch_size,
             args.out_format,
@@ -225,3 +235,7 @@ def main():
                 cache.close()
         except Exception:
             pass
+
+
+if __name__ == "__main__":
+    main()

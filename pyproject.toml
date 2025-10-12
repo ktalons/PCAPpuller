@@ -4,17 +4,41 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pcappuller"
-version = "0.1.2"
-description = "A fast PCAP window selector, merger, and trimmer"
+version = "0.3.1"
+description = "A fast PCAP window selector, merger, trimmer, and cleaner"
 readme = "README.md"
 authors = [
   { name = "Kyle Versluis" }
 ]
 license = { file = "LICENSE" }
 requires-python = ">=3.8"
+keywords = ["pcap", "wireshark", "network", "analysis", "packet", "capture", "forensics"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Environment :: X11 Applications",
+  "Intended Audience :: System Administrators",
+  "Intended Audience :: Information Technology",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: System :: Networking :: Monitoring",
+  "Topic :: System :: Systems Administration",
+]
 dependencies = [
   "tqdm",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ktalons/daPCAPpuller"
+"Bug Reports" = "https://github.com/ktalons/daPCAPpuller/issues"
+"Source" = "https://github.com/ktalons/daPCAPpuller"
+"Documentation" = "https://github.com/ktalons/daPCAPpuller/blob/main/docs/Analyst-Guide.md"
 
 [project.optional-dependencies]
 # pip install .[gui]
@@ -26,6 +50,8 @@ datetime = ["python-dateutil"]
 [project.scripts]
 pcap-puller = "pcappuller.cli:main"
 pcap-puller-gui = "pcappuller.gui:main"
+PCAPpuller = "pcappuller.gui:main"
+pcap-clean = "pcappuller.clean_cli:main"
 
 [tool.setuptools]
 packages = ["pcappuller"]
