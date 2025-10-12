@@ -20,22 +20,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install ruff mypy
-          # Install PySimpleGUI from their private index for gui dependencies
-          pip install --extra-index-url https://PySimpleGUI.net/install PySimpleGUI || true
-          pip install -e .[datetime]
-          # Install GUI dependencies only if PySimpleGUI succeeded
-          pip install -e .[gui] || echo "Skipping GUI dependencies"
-
-      - name: Python syntax check
-        run: |
-          python -m py_compile PCAPpuller.py
-          python -m py_compile gui_pcappuller.py
-          python -m compileall pcappuller/
+          pip install -e .[gui,datetime]
 
       - name: Ruff (E,F only)
         run: ruff check --select E,F --ignore E501 .
 
       - name: Mypy
-        run: |
-          # Run mypy with ignore-missing-imports for potential GUI dependency issues
-          mypy --ignore-missing-imports PCAPpuller.py pcappuller gui_pcappuller.py
+        run: mypy PCAPpuller.py pcappuller gui_pcappuller.py

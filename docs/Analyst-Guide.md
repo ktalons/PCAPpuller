@@ -1,4 +1,4 @@
-# PCAPpuller Analyst Guide v0.3.0
+# PCAPpuller Analyst Guide v0.3.1
 
 A comprehensive guide for SOC analysts to extract, clean, and analyze network traffic efficiently using the new **three-step workflow** that solves file size inflation issues.
 
@@ -36,20 +36,20 @@ mergecap --version
 **Solves file size inflation issues!**
 
 **GUI**: Launch PCAPpuller GUI
-1. Set **Root** directories containing PCAPs
-2. Configure **Start time** and **Duration**
+1. Set **Source Directory** containing PCAPs
+2. Configure **Start time** and **Duration** (or use All Day)
 3. Enable workflow steps: ☑️ Step 1, ☑️ Step 2, ☐️ Step 3 (optional)
-4. Click **Pattern Settings** to configure file filtering
+4. Click **Pattern Settings** to configure file filtering (defaults include only .pcap/.pcapng)
 5. Optional: Apply **Display filter** (300+ filters available)
 6. Click **Run Workflow**
 
 **CLI**:
 ```bash
 # Complete three-step workflow (recommended)
-pcap-puller --workspace /tmp/job --root /data --start "2025-10-10 14:30:00" --minutes 15 --snaplen 256 --gzip
+pcap-puller --workspace /tmp/job --source /data --start "2025-10-10 14:30:00" --minutes 15 --snaplen 256 --gzip
 
 # Individual steps for better control
-pcap-puller --workspace /tmp/job --step 1 --root /data --start "2025-10-10 14:30:00" --minutes 15  # Select & filter
+pcap-puller --workspace /tmp/job --step 1 --source /data --start "2025-10-10 14:30:00" --minutes 15  # Select & filter
 pcap-puller --workspace /tmp/job --step 2 --resume --display-filter "dns or http"  # Process  
 pcap-puller --workspace /tmp/job --step 3 --resume --snaplen 256 --gzip  # Clean
 
@@ -60,10 +60,11 @@ pcap-puller --workspace /tmp/job --status
 #### Legacy Mode (May Cause Size Inflation)
 ```bash
 # Use legacy mode only if needed
-pcap-puller --root /data --start "2025-10-10 14:30:00" --minutes 15 --out incident.pcapng
+pcap-puller --source /data --start "2025-10-10 14:30:00" --minutes 15 --out incident.pcapng
 ```
 
-### B. PCAP Cleaning (Enhanced in v0.3.0)
+### B. PCAP Cleaning (Enhanced in v0.3.1)
+Note: If you leave Step 3 options blank in the 3-step workflow, defaults preserve payloads (convert to pcap when possible, gzip output).
 **GUI**: Click **"Clean..."** button
 1. Select input PCAP/PCAPNG file
 2. Configure cleaning options:
@@ -90,8 +91,10 @@ pcap-clean --input capture.pcapng --start "2025-10-10 14:00:00" \
 The new pattern filtering automatically prevents duplicate data processing.
 
 **Default Settings** (work for most cases):
-- **Include**: `*.chunk_*.pcap` (individual time-based files)
-- **Exclude**: `*.sorted.pcap`, `*.s256.pcap` (large consolidated files)
+- **Include**: `*.pcap`, `*.pcapng`
+- **Exclude**: (none by default) — add excludes only if needed
+
+Tip: If your environment uses chunked filenames (e.g., `*.chunk_*.pcap`), add them via Advanced Options or Pattern Settings.
 
 **Custom Patterns** (GUI: Pattern Settings button):
 ```bash
@@ -161,7 +164,7 @@ The new pattern filtering automatically prevents duplicate data processing.
 pcap-puller --root /data --start "2025-10-10 14:00:00" --minutes 30 --out result.pcap
 
 # NEW (solves size inflation)
-pcap-puller --workspace /tmp/job --root /data --start "2025-10-10 14:00:00" --minutes 30 --snaplen 256 --gzip
+pcap-puller --workspace /tmp/job --source /data --start "2025-10-10 14:00:00" --minutes 30 --snaplen 256 --gzip
 ```
 
 ## 5. Performance & Best Practices
@@ -186,7 +189,7 @@ pcap-puller --workspace /tmp/job --root /data --start "2025-10-10 14:00:00" --mi
 ### Audit & Validation
 ```bash
 # NEW: Validate three-step workflow with dry-run
-pcap-puller --workspace /tmp/job --step 1 --root /data --start "2025-10-10 14:00:00" --minutes 30 --dry-run
+pcap-puller --workspace /tmp/job --step 1 --source /data --start "2025-10-10 14:00:00" --minutes 30 --dry-run
 
 # Check workflow status
 pcap-puller --workspace /tmp/job --status
@@ -243,12 +246,12 @@ pcap-puller --root /data --start "2025-10-10 14:00:00" --minutes 30 --dry-run --
 ### SOAR Integration
 ```bash
 # NEW: Automated incident response with three-step workflow
-pcap-puller --workspace "/cases/$CASE_ID/workspace" --root "$PCAP_STORAGE" \
+pcap-puller --workspace "/cases/$CASE_ID/workspace" --source "$PCAP_STORAGE" \
   --start "$INCIDENT_START" --minutes "$INCIDENT_DURATION" \
   --display-filter "$IOC_FILTER" --snaplen 256 --gzip --verbose
 
 # Legacy method (if needed)
-pcap-puller --root "$PCAP_STORAGE" --start "$INCIDENT_START" \
+pcap-puller --source "$PCAP_STORAGE" --start "$INCIDENT_START" \
   --minutes "$INCIDENT_DURATION" --display-filter "$IOC_FILTER" \
   --out "/cases/$CASE_ID/network_evidence.pcapng" --verbose
 ```
@@ -257,13 +260,13 @@ pcap-puller --root "$PCAP_STORAGE" --start "$INCIDENT_START" \
 ```bash
 # NEW: Process multiple timeframes with three-step workflow
 for time in "14:00:00" "14:30:00" "15:00:00"; do
-  pcap-puller --workspace "/tmp/batch_${time//:}" --root /data \
+  pcap-puller --workspace "/tmp/batch_${time//:}" --source /data \
     --start "2025-10-10 $time" --minutes 15 --snaplen 256 --gzip
 done
 
 # Legacy batch processing (if needed)
 for time in "14:00:00" "14:30:00" "15:00:00"; do
-  pcap-puller --root /data --start "2025-10-10 $time" --minutes 15 \
+  pcap-puller --source /data --start "2025-10-10 $time" --minutes 15 \
     --out "analysis_${time//:}.pcapng"
 done
 ```

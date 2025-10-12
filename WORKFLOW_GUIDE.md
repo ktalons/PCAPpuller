@@ -13,29 +13,33 @@ PCAPpuller has been enhanced with a three-step workflow that solves the file siz
 ```bash
 python3 PCAPpuller.py \
   --workspace /tmp/my_workspace \
-  --root /path/to/pcap/directory \
+  --source /path/to/pcap/directory \
   --start "2025-08-26 16:00:00" \
   --minutes 30 \
-  --slop-min 100000 \
+  --selection-mode symlink \
+  --out /path/to/output.pcapng \
+  --tmpdir /path/on/large/volume/tmp \
   --snaplen 128 \
   --gzip
 ```
 
 ### Individual Steps
 ```bash
-# Step 1: Select files
+# Step 1: Select files (no data copy using a manifest)
 python3 PCAPpuller.py \
   --workspace /tmp/my_workspace \
-  --root /path/to/pcap/directory \
+  --source /path/to/pcap/directory \
   --start "2025-08-26 16:00:00" \
   --minutes 30 \
-  --slop-min 100000 \
+  --selection-mode manifest \
   --step 1
 
-# Step 2: Process selected files
+# Step 2: Process selected files to an explicit path
 python3 PCAPpuller.py \
   --workspace /tmp/my_workspace \
   --step 2 \
+  --out /path/to/output.pcapng \
+  --tmpdir /path/on/large/volume/tmp \
   --resume
 
 # Step 3: Clean output
@@ -56,15 +60,15 @@ python3 PCAPpuller.py \
 
 ### File Pattern Filtering (Step 1)
 - **Include patterns**: Only process files matching these patterns
-  - Default: `*.chunk_*.pcap` (includes chunk files)
-- **Exclude patterns**: Skip files matching these patterns  
-  - Default: `*.sorted.pcap`, `*.s256.pcap` (excludes large consolidated files)
+  - Default: `*.pcap`, `*.pcapng`
+- **Exclude patterns**: Optional. Add if needed.
+- **Selection mode**: `--selection-mode {manifest|symlink}` controls how Step 1 materializes files in the workspace. Default is `manifest`; use `symlink` to create a browsable workspace.
 
 ### Example: Custom Patterns
 ```bash
 python3 PCAPpuller.py \
   --workspace /tmp/workspace \
-  --root /data/pcaps \
+--source /data/pcaps
   --include-pattern "*.chunk_*.pcap" "capture_*.pcap" \
   --exclude-pattern "*.backup.pcap" "*.temp.*" \
   --start "2025-08-26 16:00:00" \
@@ -76,6 +80,8 @@ python3 PCAPpuller.py \
 - **Output format**: pcap or pcapng (default: pcapng)
 - **Display filter**: Wireshark filter to apply
 - **Trim per batch**: Trim each batch vs. final file only
+- **Output path**: `--out /path/to/output.pcapng`
+- **Temporary directory**: `--tmpdir /path/on/large/volume/tmp`
 
 ### Cleaning Options (Step 3)
 - **Snaplen**: Truncate packets to N bytes (saves space)
@@ -135,7 +141,7 @@ python3 PCAPpuller.py --workspace /tmp/workspace --step 2 --resume
 # Process 6 hours of data with optimizations
 python3 PCAPpuller.py \
   --workspace /tmp/large_job \
-  --root /data/capture_2025_08_26 \
+  --source /data/capture_2025_08_26 \
   --start "2025-08-26 12:00:00" \
   --minutes 360 \
   --slop-min 100000 \
@@ -152,10 +158,10 @@ python3 PCAPpuller.py \
 # See what files would be selected without processing
 python3 PCAPpuller.py \
   --workspace /tmp/preview \
-  --root /data/pcaps \
+  --source /data/pcaps \
   --start "2025-08-26 16:00:00" \
   --minutes 60 \
-  --step 1 \
+  --step 1
   --dry-run
 ```
 
@@ -164,7 +170,7 @@ python3 PCAPpuller.py \
 # Step 1: Select HTTP traffic files
 python3 PCAPpuller.py \
   --workspace /tmp/http_analysis \
-  --root /data/network_logs \
+  --source /data/network_logs \
   --include-pattern "*http*" "*web*" \
   --start "2025-08-26 16:00:00" \
   --minutes 120 \
@@ -228,7 +234,7 @@ python3 PCAPpuller_legacy.py \
 # New workflow (solves size inflation)
 python3 PCAPpuller.py \
   --workspace /tmp/workspace \
-  --root /data/pcaps \
+  --source /data/pcaps \
   --start "2025-08-26 16:00:00" \
   --minutes 60 \
   --slop-min 100000 \
