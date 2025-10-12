@@ -47,17 +47,19 @@ def parse_args():
     ap.add_argument("--resume", action="store_true", help="Resume from existing workflow state")
     ap.add_argument("--status", action="store_true", help="Show workflow status and exit")
     
-    # Step 1: Selection parameters
+    # Step 1: File Selection
     step1_group = ap.add_argument_group("Step 1: File Selection")
-    step1_group.add_argument("--root", nargs="+", help="Root directories to search (required for new workflow)")
-    step1_group.add_argument("--include-pattern", nargs="*", default=["*.chunk_*.pcap"], 
-                           help="Include files matching these patterns")
-    step1_group.add_argument("--exclude-pattern", nargs="*", default=["*.sorted.pcap", "*.s256.pcap"], 
-                           help="Exclude files matching these patterns")
-    step1_group.add_argument("--slop-min", type=int, default=120, help="Extra minutes around window for mtime prefilter")
-    step1_group.add_argument("--precise-filter", action="store_true", default=True, help="Use capinfos for precise filtering")
-    step1_group.add_argument("--no-precise-filter", action="store_false", dest="precise_filter", 
-                           help="Skip precise filtering, use mtime only")
+    # New preferred flag
+    step1_group.add_argument("--source", nargs="+", help="Source directories to search (required for new workflow)")
+    # Backward-compat alias (hidden)
+    step1_group.add_argument("--root", nargs="+", dest="source", help=argparse.SUPPRESS)
+    step1_group.add_argument("--include-pattern", nargs="*", default=["*.pcap", "*.pcapng"], 
+                           help="Include files matching these patterns (default: *.pcap, *.pcapng)")
+    step1_group.add_argument("--exclude-pattern", nargs="*", default=[], 
+                           help="Exclude files matching these patterns (optional)")
+    step1_group.add_argument("--slop-min", type=int, default=None, help="Extra minutes around window for mtime prefilter (auto by default)")
+    step1_group.add_argument("--selection-mode", choices=["manifest", "symlink"], default="manifest",
+                           help="How to materialize Step 1 selections. 'manifest' (default) avoids any data copy; 'symlink' creates symlinks in the workspace.")
     
     # Time window (required for new workflow)
     time_group = ap.add_argument_group("Time Window")
@@ -68,12 +70,14 @@ def parse_args():
     
     # Step 2: Processing parameters  
     step2_group = ap.add_argument_group("Step 2: Processing")
-    step2_group.add_argument("--batch-size", type=int, default=500, help="Files per merge batch")
+    step2_group.add_argument("--batch-size", type=int, default=None, help="Files per merge batch (auto by default)")
     step2_group.add_argument("--out-format", choices=["pcap", "pcapng"], default="pcapng", help="Output format")
     step2_group.add_argument("--display-filter", help="Wireshark display filter")
     step2_group.add_argument("--trim-per-batch", action="store_true", help="Trim each batch before final merge")
     step2_group.add_argument("--no-trim-per-batch", action="store_false", dest="trim_per_batch", 
                            help="Only trim final merged file")
+    step2_group.add_argument("--out", help="Explicit output file path for Step 2 (e.g., /path/to/output.pcapng). If omitted, a timestamped file is written under the workspace.")
+    step2_group.add_argument("--no-precise-filter", action="store_true", help="Disable precise filtering in Step 2 (advanced)")
     
     # Step 3: Cleaning parameters
     step3_group = ap.add_argument_group("Step 3: Cleaning")
@@ -101,8 +105,8 @@ def parse_args():
     
     if not args.resume:
         # New workflow requires certain parameters
-        if not args.root:
-            ap.error("--root is required for new workflow (use --resume to continue existing)")
+        if not args.source:
+            ap.error("--source is required for new workflow (use --resume to continue existing)")
         if not args.start:
             ap.error("--start is required for new workflow")
         if not args.minutes and not args.end:
@@ -135,9 +139,9 @@ def setup_progress_callback(desc: str) -> tuple:
 
 def run_step1(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> WorkflowState:
     """Execute Step 1: File Selection."""
-    print("🔍 Step 1: Selecting and copying PCAP files...")
+    print("🔍 Step 1: Selecting PCAP files...")
     
-    # Setup cache
+    # Setup cache (not strictly needed for Step 1 now, but keep for future-proofing)
     cache = None
     if not args.no_cache:
         cache_path = default_cache_path() if args.cache == "auto" else Path(args.cache)
@@ -149,16 +153,37 @@ def run_step1(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
     progress_cb, cleanup_pb = setup_progress_callback("Step 1: File Selection")
     
     try:
+        # Auto defaults: compute slop based on requested duration when not provided
+        try:
+            start, end = parse_start_and_window(args.start, args.minutes, args.end)
+            duration_minutes = int((end - start).total_seconds() // 60)
+        except Exception:
+            duration_minutes = 60
+        if args.slop_min is None:
+            if duration_minutes <= 15:
+                slop_min = 120
+            elif duration_minutes <= 60:
+                slop_min = 60
+            elif duration_minutes <= 240:
+                slop_min = 30
+            elif duration_minutes <= 720:
+                slop_min = 20
+            else:
+                slop_min = 15
+        else:
+            slop_min = args.slop_min
+        
         workers = parse_workers(args.workers, 1000)  # Estimate for auto calculation
         
         state = workflow.step1_select_and_move(
             state=state,
-            slop_min=args.slop_min,
-            precise_filter=args.precise_filter,
+            slop_min=slop_min,
+            precise_filter=False,  # moved to Step 2 by default
             workers=workers,
             cache=cache,
             dry_run=args.dry_run,
-            progress_callback=progress_cb
+            progress_callback=progress_cb,
+            selection_mode=args.selection_mode
         )
         
         if not args.dry_run:
@@ -186,14 +211,48 @@ def run_step2(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
         if args.trim_per_batch is not None:
             trim_per_batch = args.trim_per_batch
         
+        # Auto defaults for Step 2 if not provided
+        # Determine duration from state
+        duration_minutes = int((state.window.end - state.window.start).total_seconds() // 60)
+        if args.batch_size is None:
+            if duration_minutes <= 15:
+                batch_size = 500
+            elif duration_minutes <= 60:
+                batch_size = 400
+            elif duration_minutes <= 240:
+                batch_size = 300
+            elif duration_minutes <= 720:
+                batch_size = 200
+            else:
+                batch_size = 150
+        else:
+            batch_size = int(args.batch_size)
+        if trim_per_batch is None:
+            trim_per_batch = duration_minutes > 60
+        
+        # Setup cache for Step 2 precise filtering (default on)
+        cache = None
+        if not args.no_cache:
+            cache_path = default_cache_path() if args.cache == "auto" else Path(args.cache)
+            cache = CapinfosCache(cache_path)
+            if args.clear_cache:
+                cache.clear()
+        
+        workers = parse_workers(args.workers, total_files=1000)
+        
         state = workflow.step2_process(
             state=state,
-            batch_size=args.batch_size,
+            batch_size=batch_size,
             out_format=args.out_format,
             display_filter=args.display_filter,
             trim_per_batch=trim_per_batch,
             progress_callback=progress_cb,
-            verbose=args.verbose
+            verbose=args.verbose,
+            out_path=Path(args.out) if args.out else None,
+            tmpdir_parent=Path(args.tmpdir) if args.tmpdir else None,
+            precise_filter=not bool(getattr(args, "no_precise_filter", False)),
+            workers=workers,
+            cache=cache,
         )
         
         print("✅ Step 2 complete: Processed file saved")
@@ -219,12 +278,9 @@ def run_step3(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
     if args.gzip:
         clean_options['gzip'] = True
     
+    # If user did not specify options, apply safe defaults that do not truncate payloads
     if not clean_options:
-        print("⏭️  Step 3: No cleaning options specified, skipping...")
-        state.step3_complete = True
-        state.cleaned_file = state.processed_file  # Use processed file as final
-        state.save(workflow.state_file)
-        return state
+        clean_options = {"convert_to_pcap": True, "gzip": True}
     
     print("🧹 Step 3: Cleaning output (removing headers/metadata)...")
     
@@ -305,7 +361,7 @@ def main():
             window = Window(start=start, end=end)
             
             # Initialize new workflow
-            root_dirs = [Path(r) for r in args.root]
+            root_dirs = [Path(r) for r in args.source]
             state = workflow.initialize_workflow(
                 root_dirs=root_dirs,
                 window=window,

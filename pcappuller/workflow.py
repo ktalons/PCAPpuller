@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import os
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Callable
@@ -105,11 +106,12 @@ class ThreeStepWorkflow:
         self,
         state: WorkflowState,
         slop_min: int = 120,
-        precise_filter: bool = True,
+        precise_filter: bool = False,
         workers: Optional[int] = None,
         cache: Optional[CapinfosCache] = None,
         dry_run: bool = False,
-        progress_callback: Optional[Callable[[str, int, int], None]] = None
+        progress_callback: Optional[Callable[[str, int, int], None]] = None,
+        selection_mode: str = "manifest"  # one of: 'manifest', 'symlink'
     ) -> WorkflowState:
         """
         Step 1: Select and move PCAP files based on time window and patterns.
@@ -124,8 +126,9 @@ class ThreeStepWorkflow:
             logging.info("Step 1 already complete, skipping...")
             return state
             
-        # Create selected directory
-        if not dry_run:
+        # Create selected directory only if we will materialize files
+        materialize = selection_mode == "symlink"
+        if not dry_run and materialize:
             self.selected_dir.mkdir(parents=True, exist_ok=True)
         
         # Find candidates using existing logic
@@ -137,12 +140,11 @@ class ThreeStepWorkflow:
         if progress_callback:
             progress_callback("pattern-filter", len(filtered_candidates), len(all_candidates))
         
-        # Apply precise filtering if requested
+        # Step 1 is now mtime/pattern only by default; precise filtering moved to Step 2
         if precise_filter and filtered_candidates:
             if workers is None:
                 from .core import parse_workers
                 workers = parse_workers("auto", len(filtered_candidates))
-            
             final_candidates = precise_filter_parallel(
                 filtered_candidates, state.window, workers, 0, progress_callback, cache
             )
@@ -156,30 +158,40 @@ class ThreeStepWorkflow:
             logging.info(f"  After precise filtering: {len(final_candidates)}")
             return state
         
-        # Copy files to workspace
-        copied_files = []
-        for i, src_file in enumerate(final_candidates):
-            dst_file = self.selected_dir / src_file.name
-            # Handle name conflicts by appending a counter
-            counter = 1
-            while dst_file.exists():
-                stem = src_file.stem
-                suffix = src_file.suffix
-                dst_file = self.selected_dir / f"{stem}_{counter:03d}{suffix}"
-                counter += 1
-            
-            shutil.copy2(src_file, dst_file)
-            copied_files.append(dst_file)
-            
-            if progress_callback:
-                progress_callback("copy-files", i + 1, len(final_candidates))
+        selected_list: List[Path] = []
+        if selection_mode == "manifest":
+            # Do not materialize files; just record original paths
+            selected_list = list(final_candidates)
+        else:
+            # Materialize files via symlink only
+            for i, src_file in enumerate(final_candidates):
+                dst_file = self.selected_dir / src_file.name
+                # Handle name conflicts by appending a counter
+                counter = 1
+                while dst_file.exists():
+                    stem = src_file.stem
+                    suffix = src_file.suffix
+                    dst_file = self.selected_dir / f"{stem}_{counter:03d}{suffix}"
+                    counter += 1
+                try:
+                    os.symlink(src_file, dst_file)
+                    selected_list.append(dst_file)
+                except Exception as e:
+                    logging.warning("Failed to symlink %s -> %s (%s); recording manifest path instead", src_file, dst_file, e)
+                    selected_list.append(src_file)
+                
+                if progress_callback:
+                    progress_callback("copy-files", i + 1, len(final_candidates))
         
         # Update state
-        state.selected_files = copied_files
+        state.selected_files = selected_list
         state.step1_complete = True
         state.save(self.state_file)
         
-        logging.info(f"Step 1 complete: Selected and copied {len(copied_files)} files to {self.selected_dir}")
+        if selection_mode == "manifest":
+            logging.info(f"Step 1 complete: Selected {len(selected_list)} files (manifest-only, no data copied)")
+        else:
+            logging.info(f"Step 1 complete: Materialized {len(selected_list)} files to {self.selected_dir} via {selection_mode}")
         return state
     
     def step2_process(
@@ -190,7 +202,12 @@ class ThreeStepWorkflow:
         display_filter: Optional[str] = None,
         trim_per_batch: Optional[bool] = None,
         progress_callback: Optional[Callable[[str, int, int], None]] = None,
-        verbose: bool = False
+        verbose: bool = False,
+        out_path: Optional[Path] = None,
+        tmpdir_parent: Optional[Path] = None,
+        precise_filter: bool = True,
+        workers: Optional[int] = None,
+        cache: Optional[CapinfosCache] = None,
     ) -> WorkflowState:
         """
         Step 2: Process selected files using existing merge/trim logic.
@@ -213,25 +230,40 @@ class ThreeStepWorkflow:
         # Create processed directory
         self.processed_dir.mkdir(parents=True, exist_ok=True)
         
-        # Determine output filename
+        # Determine output filename or use provided path
         timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file = self.processed_dir / f"merged_{timestamp}.{out_format}"
+        default_output = self.processed_dir / f"merged_{timestamp}.{out_format}"
+        output_file = out_path if out_path else default_output
         
         # Auto-determine trim_per_batch if not specified
         if trim_per_batch is None:
             duration_minutes = int((state.window.end - state.window.start).total_seconds() // 60)
             trim_per_batch = duration_minutes > 60
         
-        # Ensure tmp directory exists
-        tmp_dir = self.workspace_dir / "tmp"
-        tmp_dir.mkdir(parents=True, exist_ok=True)
+        # Ensure tmp directory exists (use override if provided)
+        if tmpdir_parent is None:
+            tmp_dir = self.workspace_dir / "tmp"
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            tmp_parent = tmp_dir
+        else:
+            Path(tmpdir_parent).mkdir(parents=True, exist_ok=True)
+            tmp_parent = Path(tmpdir_parent)
+        # Optionally apply precise filtering now (moved from Step 1)
+        candidates_for_merge = list(state.selected_files)
+        if precise_filter and candidates_for_merge:
+            if workers is None:
+                from .core import parse_workers
+                workers = parse_workers("auto", len(candidates_for_merge))
+            candidates_for_merge = precise_filter_parallel(
+                candidates_for_merge, state.window, workers, 0, progress_callback, cache
+            )
         
         # Use existing build_output logic
         result_file = build_output(
-            candidates=state.selected_files,
+            candidates=candidates_for_merge,
             window=state.window,
             out_path=output_file,
-            tmpdir_parent=tmp_dir,
+            tmpdir_parent=tmp_parent,
             batch_size=batch_size,
             out_format=out_format,
             display_filter=display_filter,

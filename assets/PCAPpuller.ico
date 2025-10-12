@@ -1,0 +1,7 @@
+This is a placeholder for the PCAPpuller application icon (ICO format).
+
+Replace this file with your real Windows .ico icon:
+- Name: PCAPpuller.ico
+- Place under assets/ for development window icon on Windows
+
+For packaging MSI/EXE, configure your bundler to reference this .ico file.

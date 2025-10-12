@@ -1,0 +1,10 @@
+This is a placeholder for the PCAPpuller application icon (PNG format).
+
+Replace this file with your real icon:
+- Recommended sizes: 512x512 and 256x256
+- Name: PCAPpuller.png
+
+Packaging notes:
+- Linux .desktop uses Icon=PCAPpuller; install this file to a theme path like:
+  /usr/share/icons/hicolor/512x512/apps/PCAPpuller.png
+- During development, the GUI will attempt to load assets/PCAPpuller.png automatically for the window icon.

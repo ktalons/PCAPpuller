@@ -140,11 +140,19 @@ ___
 ### Three-Step Workflow (Recommended)
 ```bash
 # Complete workflow - solves size inflation issues!
-pcap-puller --workspace /tmp/job --root /mnt/dir --start "YYYY-MM-DD HH:MM:SS" --minutes 15 --snaplen 256 --gzip
+pcap-puller --workspace /tmp/job \
+  --source /mnt/dir \
+  --start "YYYY-MM-DD HH:MM:SS" \
+  --minutes 15 \
+  --selection-mode symlink \
+  --out /path/to/output.pcapng \
+  --tmpdir /path/on/large/volume/tmp \
+  --snaplen 256 \
+  --gzip
 
 # Individual steps for more control
-pcap-puller --workspace /tmp/job --step 1 --root /mnt/dir --start "YYYY-MM-DD HH:MM:SS" --minutes 15  # Select
-pcap-puller --workspace /tmp/job --step 2 --resume --display-filter "dns"  # Process  
+pcap-puller --workspace /tmp/job --step 1 --source /mnt/dir --start "YYYY-MM-DD HH:MM:SS" --minutes 15 --selection-mode manifest  # Select (no data copy)
+pcap-puller --workspace /tmp/job --step 2 --resume --display-filter "dns" --out /path/to/output.pcapng --tmpdir /big/tmp  # Process  
 pcap-puller --workspace /tmp/job --step 3 --resume --snaplen 256 --gzip  # Clean
 
 # Check status anytime
@@ -172,10 +180,10 @@ pcap-puller --workspace /tmp/job --status
 ### Direct (without install)
 ```bash
 # New three-step workflow (recommended)
-python3 PCAPpuller.py --workspace /tmp/job --root /mnt/dir --start "YYYY-MM-DD HH:MM:SS" --minutes 30 --snaplen 256 --gzip
+python3 PCAPpuller.py --workspace /tmp/job --source /mnt/dir --start "YYYY-MM-DD HH:MM:SS" --minutes 30 --snaplen 256 --gzip
 
 # Individual steps
-python3 PCAPpuller.py --workspace /tmp/job --step 1 --root /mnt/dir --start "YYYY-MM-DD HH:MM:SS" --minutes 30
+python3 PCAPpuller.py --workspace /tmp/job --step 1 --source /mnt/dir --start "YYYY-MM-DD HH:MM:SS" --minutes 30
 python3 PCAPpuller.py --workspace /tmp/job --step 2 --resume --display-filter "dns" 
 python3 PCAPpuller.py --workspace /tmp/job --step 3 --resume --snaplen 256 --gzip
 
@@ -186,7 +194,7 @@ ___
 ## Arguments 💥
 ### Required ❗
 > `--workspace </workspace/path>` — workspace directory for three-step workflow (NEW).<br>
-> `--root </root/directory ...>` — one or more directories to search.<br>
+> `--source </source/directory ...>` — one or more directories to search. (`--root` is still accepted as an alias.)<br>
 > `--start "YYYY-MM-DD HH:MM:SS"` — window start (local time).<br>
 > `--minutes <1–1440>` — duration; must stay within a single calendar day. Or use `--end` with same-day end time.<br>
 ### Optional ❓
@@ -196,9 +204,10 @@ ___
 > `--resume` — resume from existing workflow state.<br>
 > `--status` — show workflow status and exit.<br>
 
-**Pattern Filtering (Step 1):**
-> `--include-pattern [PATTERNS...]` — include files matching patterns (default: *.chunk_*.pcap).<br>
-> `--exclude-pattern [PATTERNS...]` — exclude files matching patterns (default: *.sorted.pcap, *.s256.pcap).<br>
+**Pattern Filtering (Step 1):
+> `--include-pattern [PATTERNS...]` — include files matching patterns (default: *.pcap, *.pcapng).<br>
+> `--exclude-pattern [PATTERNS...]` — optional excludes (none by default).<br>
+> `--selection-mode {manifest|symlink}` — how to materialize selections. Default: manifest. Use `symlink` to browse selections in a workspace folder.<br>
 
 **Processing Options:**
 > `--end <YYYY-MM-DD HH:MM:SS>` — end time instead of `--minutes` (must be same day as `--start`).<br>
@@ -208,6 +217,8 @@ ___
 > `--workers <auto|INT>` — concurrency for precise filter (default: auto ≈ 2×CPU, gently capped).<br>
 > `--display-filter "<Wireshark filter>"` — post-trim filter via tshark (e.g., "dns", "tcp.port==443").<br>
 > `--out-format {pcap|pcapng}` — final capture format (default: pcapng).<br>
+> `--out </path/to/output.pcapng>` — explicit output path for Step 2 (otherwise written under workspace).<br>
+> `--tmpdir </path/to/tmp>` — directory for temporary files during Step 2 (overrides system/workspace tmp).<br>
 
 **Cleaning Options (Step 3):**
 > `--snaplen <INT>` — truncate packets to N bytes.<br>
@@ -242,6 +253,14 @@ ___
 - Cleaning options in Step 3 can reduce final file size by 60-90%
 - Check status anytime: `--workspace /path --status`
 ___
+## App Icons 🖼️
+- Place your icons under assets/
+  - macOS: PCAPpuller.icns
+  - Linux: PCAPpuller.png (e.g., install to /usr/share/icons/hicolor/512x512/apps/PCAPpuller.png)
+  - Windows: PCAPpuller.ico
+- During development, the GUI attempts to load assets/PCAPpuller.ico/.png/.icns and set the window icon automatically.
+- The Linux desktop entry now uses Name=PCAPpuller and Exec=PCAPpuller with Icon=PCAPpuller.
+
 ## Development 🛠️
 - Install tooling (in a virtualenv):
   - python3 -m pip install -e .[datetime]

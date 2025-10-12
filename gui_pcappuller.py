@@ -180,8 +180,8 @@ def _open_pattern_settings(parent: "sg.Window", current_include: list, current_e
             win.close()
             return None
         elif ev == "Reset to Defaults":
-            win["-INCLUDE-"].update("*.chunk_*.pcap")
-            win["-EXCLUDE-"].update("*.sorted.pcap\n*.s256.pcap")
+            win["-INCLUDE-"].update("*.pcap\n*.pcapng")
+            win["-EXCLUDE-"].update("")
         elif ev == "Save":
             include_text = vals.get("-INCLUDE-", "").strip()
             exclude_text = vals.get("-EXCLUDE-", "").strip()
@@ -217,10 +217,10 @@ def run_workflow_v2(values: dict, window: "sg.Window", stop_flag: dict, adv_over
             desired_end = dt.datetime.combine(start.date(), dt.time(23, 59, 59, 999999))
             
         window_obj = Window(start=start, end=desired_end)
-        roots = [Path(values["-ROOT-"])] if values["-ROOT-"] else []
+        roots = [Path(values["-SOURCE-"])] if values.get("-SOURCE-") else []
         
         if not roots:
-            raise PCAPPullerError("Root directory is required")
+            raise PCAPPullerError("Source directory is required")
             
         # Create workspace in temp directory
         workspace_name = f"pcappuller_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -230,8 +230,8 @@ def run_workflow_v2(values: dict, window: "sg.Window", stop_flag: dict, adv_over
         workflow = ThreeStepWorkflow(workspace_dir)
         
         # Get pattern settings from values
-        include_patterns = values.get("-INCLUDE-PATTERNS-", ["*.chunk_*.pcap"])
-        exclude_patterns = values.get("-EXCLUDE-PATTERNS-", ["*.sorted.pcap", "*.s256.pcap"])
+        include_patterns = values.get("-INCLUDE-PATTERNS-", ["*.pcap", "*.pcapng"])
+        exclude_patterns = values.get("-EXCLUDE-PATTERNS-", [])
         
         state = workflow.initialize_workflow(
             root_dirs=roots,
@@ -267,6 +267,15 @@ def run_workflow_v2(values: dict, window: "sg.Window", stop_flag: dict, adv_over
         run_step3 = values.get("-RUN-STEP3-", False)
         
         try:
+            # Verbose: announce core settings
+            print("Configuration:")
+            print(f"  Source: {roots[0]}")
+            print(f"  Window: {window_obj.start} .. {window_obj.end}")
+            print(f"  Selection: manifest (Step 1 uses mtime+pattern only)")
+            print(f"  Output: {values.get('-OUT-', '(workspace default)')}")
+            print(f"  Tmpdir: {values.get('-TMPDIR-', '(workspace tmp)')}")
+            print(f"  Effective settings: workers={eff_settings['workers']}, batch={eff_settings['batch']}, slop={eff_settings['slop']}, trim_per_batch={eff_settings['trim_per_batch']}, precise_in_step2={eff_settings['precise_filter']}")
+            
             # Step 1: Select and Move
             if run_step1:
                 window.write_event_value("-STEP-UPDATE-", ("Step 1: Selecting files...", 1))
@@ -275,7 +284,7 @@ def run_workflow_v2(values: dict, window: "sg.Window", stop_flag: dict, adv_over
                 state = workflow.step1_select_and_move(
                     state=state,
                     slop_min=eff_settings["slop"],
-                    precise_filter=eff_settings["precise_filter"],
+                    precise_filter=False,  # moved to Step 2
                     workers=workers,
                     cache=cache,
                     dry_run=values.get("-DRYRUN-", False),
@@ -291,12 +300,20 @@ def run_workflow_v2(values: dict, window: "sg.Window", stop_flag: dict, adv_over
                     return
                     
                 if not state.selected_files:
+                    print("Step 1 selected 0 files.")
                     window.write_event_value("-DONE-", "No files selected in Step 1")
                     return
+                else:
+                    total_size_mb = sum(f.stat().st_size for f in state.selected_files) / (1024*1024)
+                    print(f"Step 1 selected {len(state.selected_files)} files ({total_size_mb:.1f} MB)")
             
             # Step 2: Process
             if run_step2:
                 window.write_event_value("-STEP-UPDATE-", ("Step 2: Processing files...", 2))
+                print("Step 2: Applying precise filter and processing...")
+                print(f"  Batch size: {eff_settings['batch']} | Trim per batch: {eff_settings['trim_per_batch']}")
+                if values.get("-DFILTER-"):
+                    print(f"  Display filter: {values['-DFILTER-']}")
                 
                 state = workflow.step2_process(
                     state=state,
@@ -305,7 +322,12 @@ def run_workflow_v2(values: dict, window: "sg.Window", stop_flag: dict, adv_over
                     display_filter=values["-DFILTER-"] or None,
                     trim_per_batch=eff_settings["trim_per_batch"],
                     progress_callback=progress_callback,
-                    verbose=values.get("-VERBOSE-", False)
+                    verbose=values.get("-VERBOSE-", False),
+                    out_path=(Path(values["-OUT-"]) if values.get("-OUT-") else None),
+                    tmpdir_parent=(Path(values["-TMPDIR-"]) if values.get("-TMPDIR-") else None),
+                    precise_filter=eff_settings["precise_filter"],
+                    workers=parse_workers(eff_settings["workers"], 1000),
+                    cache=cache,
                 )
             
             # Step 3: Clean
@@ -327,13 +349,15 @@ def run_workflow_v2(values: dict, window: "sg.Window", stop_flag: dict, adv_over
                 if values.get("-GZIP-"):
                     clean_options["gzip"] = True
                 
-                if clean_options:
-                    state = workflow.step3_clean(
-                        state=state,
-                        options=clean_options,
-                        progress_callback=progress_callback,
-                        verbose=values.get("-VERBOSE-", False)
-                    )
+                # If no options were specified but Step 3 is enabled, apply sensible defaults
+                if not clean_options:
+                    clean_options = {"snaplen": 256, "gzip": True}
+                state = workflow.step3_clean(
+                    state=state,
+                    options=clean_options,
+                    progress_callback=progress_callback,
+                    verbose=values.get("-VERBOSE-", False)
+                )
             
             # Determine final output
             final_file = state.cleaned_file or state.processed_file
@@ -357,8 +381,8 @@ def main():
     sg.theme("SystemDefault")
     
     # Default patterns
-    default_include = ["*.chunk_*.pcap"]
-    default_exclude = ["*.sorted.pcap", "*.s256.pcap"]
+    default_include = ["*.pcap", "*.pcapng"]
+    default_exclude = []
     
     # Create layout with three-step workflow
     layout = [
@@ -366,12 +390,14 @@ def main():
         [sg.HSeparator()],
         
         # Basic settings
-        [sg.Text("Root Directory"), sg.Input(key="-ROOT-", expand_x=True), sg.FolderBrowse()],
+        [sg.Text("Source Directory"), sg.Input(key="-SOURCE-", expand_x=True), sg.FolderBrowse()],
         [sg.Text("Start Time (YYYY-MM-DD HH:MM:SS)"), sg.Input(key="-START-", expand_x=True)],
         [sg.Text("Duration"), 
          sg.Text("Hours"), sg.Slider(range=(0, 24), orientation="h", key="-HOURS-", default_value=0, size=(20,15), enable_events=True),
          sg.Text("Minutes"), sg.Slider(range=(0, 59), orientation="h", key="-MINS-", default_value=15, size=(20,15), enable_events=True),
          sg.Button("All Day", key="-ALLDAY-")],
+        [sg.Text("Output File"), sg.Input(key="-OUT-", expand_x=True), sg.FileSaveAs()],
+        [sg.Text("Temporary Directory"), sg.Input(key="-TMPDIR-", expand_x=True), sg.FolderBrowse()],
         
         [sg.HSeparator()],
         
@@ -392,7 +418,7 @@ def main():
         ], expand_x=True)],
         
         [sg.Frame("Step 3: Cleaning Options", [
-            [sg.Text("Snaplen (bytes)"), sg.Input("", key="-CLEAN-SNAPLEN-", size=(8,1), tooltip="Truncate packets to save space"),
+            [sg.Text("Snaplen (bytes)"), sg.Input("", key="-CLEAN-SNAPLEN-", size=(8,1), tooltip="Truncate packets to save space (leave blank to keep full payload)"),
              sg.Checkbox("Convert to PCAP", key="-CLEAN-CONVERT-", tooltip="Force conversion to pcap format"),
              sg.Checkbox("Gzip Compress", key="-GZIP-", tooltip="Compress final output")],
         ], expand_x=True)],
@@ -420,6 +446,24 @@ def main():
     ]
     
     window = sg.Window("PCAPpuller v2", layout, size=(900, 800))
+    # Try to set a custom window icon if assets exist
+    try:
+        here = Path(__file__).resolve()
+        assets_dir = None
+        for p in [here.parent, *here.parents]:
+            cand = p / "assets"
+            if cand.exists():
+                assets_dir = cand
+                break
+        if assets_dir is None:
+            assets_dir = here.parent / "assets"
+        for icon_name in ["PCAPpuller.ico", "PCAPpuller.png", "PCAPpuller.icns"]:
+            ip = assets_dir / icon_name
+            if ip.exists():
+                window.set_icon(str(ip))
+                break
+    except Exception:
+        pass
     stop_flag = {"stop": False}
     worker = None
     adv_overrides: dict | None = None
@@ -456,8 +500,8 @@ def main():
             
         if event == "Run Workflow" and worker is None:
             # Validation
-            if not values.get("-ROOT-"):
-                sg.popup_error("Root directory is required")
+            if not values.get("-SOURCE-"):
+                sg.popup_error("Source directory is required")
                 continue
             if not values.get("-START-"):
                 sg.popup_error("Start time is required")
@@ -540,11 +584,21 @@ def main():
                 
         elif event == "-PROGRESS-":
             phase, cur, tot = values[event]
+            friendly = {
+                "pattern-filter": "Filtering by pattern",
+                "precise": "Precise filtering",
+                "merge-batches": "Merging batches",
+                "trim-batches": "Trimming batches",
+                "trim": "Trimming final",
+                "display-filter": "Applying display filter",
+                "gzip": "Compressing",
+            }
             if str(phase).startswith("scan"):
                 window["-STATUS-"].update(f"Scanning... {cur} files visited")
                 window["-PB-"].update(cur % 100)
             else:
-                window["-STATUS-"].update(f"{phase} {cur}/{tot}")
+                label = friendly.get(str(phase), str(phase))
+                window["-STATUS-"].update(f"{label}: {cur}/{tot}")
                 pct = 0 if tot <= 0 else int((cur / tot) * 100)
                 window["-PB-"].update(pct)
             print(f"{phase}: {cur}/{tot}")
