@@ -271,7 +271,7 @@ def run_workflow_v2(values: dict, window: "sg.Window", stop_flag: dict, adv_over
             print("Configuration:")
             print(f"  Source: {roots[0]}")
             print(f"  Window: {window_obj.start} .. {window_obj.end}")
-            print(f"  Selection: manifest (Step 1 uses mtime+pattern only)")
+            print("  Selection: manifest (Step 1 uses mtime+pattern only)")
             print(f"  Output: {values.get('-OUT-', '(workspace default)')}")
             print(f"  Tmpdir: {values.get('-TMPDIR-', '(workspace tmp)')}")
             print(f"  Effective settings: workers={eff_settings['workers']}, batch={eff_settings['batch']}, slop={eff_settings['slop']}, trim_per_batch={eff_settings['trim_per_batch']}, precise_in_step2={eff_settings['precise_filter']}")
