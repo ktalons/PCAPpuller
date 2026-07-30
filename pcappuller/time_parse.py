@@ -3,6 +3,8 @@ from __future__ import annotations
 import datetime as dt
 from typing import TYPE_CHECKING, Optional, Tuple
 
+from .errors import PCAPPullerError
+
 if TYPE_CHECKING:
     from dateutil import parser as dateutil_parser
 else:
@@ -12,7 +14,7 @@ else:
         dateutil_parser = None
 
 
-class TimeParseError(ValueError):
+class TimeParseError(PCAPPullerError, ValueError):
     pass
 
 
@@ -50,7 +52,7 @@ def parse_dt_flexible(s: str) -> dt.datetime:
 
 def parse_start_and_window(start_str: str, minutes: Optional[int], end_str: Optional[str]) -> Tuple[dt.datetime, dt.datetime]:
     if (minutes is None) == (end_str is None):
-        raise TimeParseError("Provide either --minutes or --end, not both.")
+        raise TimeParseError("Provide exactly one of --minutes or --end.")
     start = parse_dt_flexible(start_str)
     if end_str:
         end = parse_dt_flexible(end_str)
