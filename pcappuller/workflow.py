@@ -4,7 +4,7 @@ import datetime as dt
 import json
 import logging
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -12,6 +12,9 @@ from .cache import CapinfosCache
 from .core import Window, build_output, candidate_files, precise_filter_parallel
 from .errors import PCAPPullerError
 from .tools import run_editcap_snaplen, try_convert_to_pcap
+
+# Bump when WorkflowState's serialized shape changes incompatibly
+STATE_SCHEMA_VERSION = 1
 
 
 @dataclass
@@ -42,16 +45,33 @@ class WorkflowState:
         state_dict['selected_files'] = [str(p) for p in self.selected_files] if self.selected_files else None
         state_dict['processed_file'] = str(self.processed_file) if self.processed_file else None
         state_dict['cleaned_file'] = str(self.cleaned_file) if self.cleaned_file else None
-        
-        with open(state_file, 'w') as f:
+        state_dict['schema_version'] = STATE_SCHEMA_VERSION
+
+        # Atomic write: a crash mid-write must not corrupt the existing state file
+        tmp_file = state_file.with_suffix(state_file.suffix + '.tmp')
+        with open(tmp_file, 'w') as f:
             json.dump(state_dict, f, indent=2)
-    
+        os.replace(tmp_file, state_file)
+
     @classmethod
     def load(cls, state_file: Path) -> 'WorkflowState':
         """Load workflow state from JSON file."""
         with open(state_file, 'r') as f:
             state_dict = json.load(f)
-        
+
+        # Missing schema_version means a pre-0.4.0 workspace; treat as v1
+        version = state_dict.pop('schema_version', 1)
+        if version > STATE_SCHEMA_VERSION:
+            raise PCAPPullerError(
+                f"Workflow state at {state_file} was written by a newer PCAPpuller "
+                f"(schema v{version}, this build reads v{STATE_SCHEMA_VERSION}). Upgrade to resume it."
+            )
+        # Drop unknown keys so older builds tolerate forward-compatible additions
+        known = {f.name for f in fields(cls)}
+        for key in set(state_dict) - known:
+            logging.debug("Ignoring unknown workflow state key: %s", key)
+            state_dict.pop(key)
+
         # Convert strings back to Path objects
         state_dict['workspace_dir'] = Path(state_dict['workspace_dir'])
         state_dict['root_dirs'] = [Path(p) for p in state_dict['root_dirs']]
@@ -289,12 +309,10 @@ class ThreeStepWorkflow:
     ) -> WorkflowState:
         """
         Step 3: Clean the processed file by removing headers/metadata.
-        
+
         Available cleaning options:
         - snaplen: Truncate packets to specified length
-        - remove_ethernet: Convert to raw IP (remove Ethernet headers)
         - convert_to_pcap: Force conversion to pcap format
-        - anonymize: Basic IP anonymization (if available)
         - gzip: Compress final output
         """
         if state.step3_complete:
@@ -320,8 +338,12 @@ class ThreeStepWorkflow:
         # Snaplen truncation
         if options.get('snaplen'):
             step_count += 1
-            snaplen_file = self.cleaned_dir / f"snaplen_{timestamp}.{current_file.suffix[1:]}"
-            run_editcap_snaplen(current_file, snaplen_file, options['snaplen'], verbose=verbose)
+            # Pass the format explicitly: editcap defaults to pcapng, which would
+            # silently mislabel a .pcap-named output file
+            suffix = current_file.suffix.lower() if current_file.suffix else ".pcapng"
+            out_format = "pcap" if suffix == ".pcap" else "pcapng"
+            snaplen_file = self.cleaned_dir / f"snaplen_{timestamp}{suffix}"
+            run_editcap_snaplen(current_file, snaplen_file, options['snaplen'], out_format=out_format, verbose=verbose)
             current_file = snaplen_file
             if progress_callback:
                 progress_callback("clean-snaplen", step_count, total_steps)
