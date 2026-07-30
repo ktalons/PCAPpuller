@@ -35,7 +35,12 @@ def parse_dt_flexible(s: str) -> dt.datetime:
         s2 = s[:-1]
         for fmt in fmts:
             try:
-                return dt.datetime.strptime(s2, fmt).replace(tzinfo=dt.timezone.utc).astimezone(tz=None).replace(tzinfo=None)
+                return (
+                    dt.datetime.strptime(s2, fmt)
+                    .replace(tzinfo=dt.timezone.utc)
+                    .astimezone(tz=None)
+                    .replace(tzinfo=None)
+                )
             except ValueError:
                 pass
     # Fallback: dateutil if available
@@ -50,14 +55,18 @@ def parse_dt_flexible(s: str) -> dt.datetime:
     raise TimeParseError(f"Invalid datetime format: {s}. Use 'YYYY-MM-DD HH:MM:SS' or ISO-like.")
 
 
-def parse_start_and_window(start_str: str, minutes: Optional[int], end_str: Optional[str]) -> Tuple[dt.datetime, dt.datetime]:
+def parse_start_and_window(
+    start_str: str, minutes: Optional[int], end_str: Optional[str]
+) -> Tuple[dt.datetime, dt.datetime]:
     if (minutes is None) == (end_str is None):
         raise TimeParseError("Provide exactly one of --minutes or --end.")
     start = parse_dt_flexible(start_str)
     if end_str:
         end = parse_dt_flexible(end_str)
         if end.date() != start.date():
-            raise TimeParseError("Window crosses midnight. Choose a window within a single calendar day.")
+            raise TimeParseError(
+                "Window crosses midnight. Choose a window within a single calendar day."
+            )
     else:
         assert minutes is not None
         mins = int(minutes)

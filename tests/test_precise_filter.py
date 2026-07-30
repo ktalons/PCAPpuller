@@ -1,4 +1,5 @@
 """Unit tests for pcappuller.core.precise_filter_parallel."""
+
 from __future__ import annotations
 
 import datetime as dt

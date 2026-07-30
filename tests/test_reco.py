@@ -1,4 +1,5 @@
 """Unit tests for pcappuller.reco tier tables."""
+
 from __future__ import annotations
 
 import pytest

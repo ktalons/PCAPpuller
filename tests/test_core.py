@@ -1,4 +1,5 @@
 """Unit tests for pcappuller.core: parse_workers, candidate_files, ensure_tools."""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -19,6 +20,7 @@ SLOP_MIN = 10  # 600 s of slop on each side: [9400, 20600]
 
 
 # ---------------------------------------------------------------- parse_workers
+
 
 def test_parse_workers_auto_scales_with_cpu(monkeypatch):
     """auto -> 2x cores."""
@@ -76,6 +78,7 @@ def test_parse_workers_invalid_raises(bad):
 
 
 # -------------------------------------------------------------- candidate_files
+
 
 def test_candidate_files_mtime_window_and_extensions(pcap_tree):
     root = pcap_tree(
@@ -136,6 +139,7 @@ def test_candidate_files_raising_progress_callback_is_swallowed(pcap_tree):
 
 
 # ----------------------------------------------------------------- ensure_tools
+
 
 def test_ensure_tools_all_present(fake_which):
     ensure_tools(display_filter="tcp", precise_filter=True)  # must not raise

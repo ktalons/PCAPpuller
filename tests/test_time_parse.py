@@ -1,4 +1,5 @@
 """Unit tests for pcappuller.time_parse."""
+
 from __future__ import annotations
 
 import datetime as dt

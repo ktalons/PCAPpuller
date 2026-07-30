@@ -1,4 +1,5 @@
 """Unit tests for pcappuller.tools — subprocess boundary faked, no Wireshark tools run."""
+
 from __future__ import annotations
 
 import shutil

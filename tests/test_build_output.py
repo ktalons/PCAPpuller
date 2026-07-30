@@ -1,4 +1,5 @@
 """Unit tests for pcappuller.core.build_output — all external tools faked via RunRecorder."""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -167,8 +168,9 @@ def test_plain_output_moved_to_out_path(tmp_path, make_minimal_pcap, fake_run, m
     assert out_path.read_bytes() == b"FAKEeditcap"
 
 
-def test_oserror_maps_to_tempspace_with_tmpdir_hint(tmp_path, make_minimal_pcap, fake_run,
-                                                    monkeypatch):
+def test_oserror_maps_to_tempspace_with_tmpdir_hint(
+    tmp_path, make_minimal_pcap, fake_run, monkeypatch
+):
     """OSError during the final move becomes TempSpaceError; hint shown when tmpdir_parent=None."""
     _patch_rlimit(monkeypatch)
     assert issubclass(TempSpaceError, PCAPPullerError)
@@ -182,8 +184,9 @@ def test_oserror_maps_to_tempspace_with_tmpdir_hint(tmp_path, make_minimal_pcap,
         _build(cands, tmp_path / "out.pcapng", tmpdir_parent=None)
 
 
-def test_oserror_no_hint_when_tmpdir_parent_given(tmp_path, make_minimal_pcap, fake_run,
-                                                  monkeypatch):
+def test_oserror_no_hint_when_tmpdir_parent_given(
+    tmp_path, make_minimal_pcap, fake_run, monkeypatch
+):
     """With an explicit tmpdir_parent the --tmpdir hint is suppressed."""
     _patch_rlimit(monkeypatch)
     cands = _candidates(tmp_path, make_minimal_pcap, 2)

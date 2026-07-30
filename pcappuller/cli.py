@@ -4,6 +4,7 @@ PCAPpuller CLI
 Three-step workflow: Select -> Process -> Clean
 Solves file size inflation issues with smart pattern filtering.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -50,25 +51,50 @@ def parse_args():
     ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
 
     # Workflow control
-    ap.add_argument("--workspace", help="Workspace directory for the workflow (required for all operations)")
-    ap.add_argument("--step", choices=["1", "2", "3", "all"], default="all",
-                   help="Which step to run: 1=Select, 2=Process, 3=Clean, all=Run all steps")
+    ap.add_argument(
+        "--workspace", help="Workspace directory for the workflow (required for all operations)"
+    )
+    ap.add_argument(
+        "--step",
+        choices=["1", "2", "3", "all"],
+        default="all",
+        help="Which step to run: 1=Select, 2=Process, 3=Clean, all=Run all steps",
+    )
     ap.add_argument("--resume", action="store_true", help="Resume from existing workflow state")
     ap.add_argument("--status", action="store_true", help="Show workflow status and exit")
 
     # Step 1: File Selection
     step1_group = ap.add_argument_group("Step 1: File Selection")
     # New preferred flag
-    step1_group.add_argument("--source", nargs="+", help="Source directories to search (required for new workflow)")
+    step1_group.add_argument(
+        "--source", nargs="+", help="Source directories to search (required for new workflow)"
+    )
     # Backward-compat alias (hidden)
     step1_group.add_argument("--root", nargs="+", dest="source", help=argparse.SUPPRESS)
-    step1_group.add_argument("--include-pattern", nargs="*", default=["*.pcap", "*.pcapng"],
-                           help="Include files matching these patterns (default: *.pcap, *.pcapng)")
-    step1_group.add_argument("--exclude-pattern", nargs="*", default=[],
-                           help="Exclude files matching these patterns (optional)")
-    step1_group.add_argument("--slop-min", type=int, default=None, help="Extra minutes around window for mtime prefilter (auto by default)")
-    step1_group.add_argument("--selection-mode", choices=["manifest", "symlink"], default="manifest",
-                           help="How to materialize Step 1 selections. 'manifest' (default) avoids any data copy; 'symlink' creates symlinks in the workspace.")
+    step1_group.add_argument(
+        "--include-pattern",
+        nargs="*",
+        default=["*.pcap", "*.pcapng"],
+        help="Include files matching these patterns (default: *.pcap, *.pcapng)",
+    )
+    step1_group.add_argument(
+        "--exclude-pattern",
+        nargs="*",
+        default=[],
+        help="Exclude files matching these patterns (optional)",
+    )
+    step1_group.add_argument(
+        "--slop-min",
+        type=int,
+        default=None,
+        help="Extra minutes around window for mtime prefilter (auto by default)",
+    )
+    step1_group.add_argument(
+        "--selection-mode",
+        choices=["manifest", "symlink"],
+        default="manifest",
+        help="How to materialize Step 1 selections. 'manifest' (default) avoids any data copy; 'symlink' creates symlinks in the workspace.",
+    )
 
     # Time window (required for new workflow)
     time_group = ap.add_argument_group("Time Window")
@@ -79,18 +105,35 @@ def parse_args():
 
     # Step 2: Processing parameters
     step2_group = ap.add_argument_group("Step 2: Processing")
-    step2_group.add_argument("--batch-size", type=int, default=None, help="Files per merge batch (auto by default)")
-    step2_group.add_argument("--out-format", choices=["pcap", "pcapng"], default="pcapng", help="Output format")
+    step2_group.add_argument(
+        "--batch-size", type=int, default=None, help="Files per merge batch (auto by default)"
+    )
+    step2_group.add_argument(
+        "--out-format", choices=["pcap", "pcapng"], default="pcapng", help="Output format"
+    )
     step2_group.add_argument("--display-filter", help="Wireshark display filter")
-    step2_group.add_argument("--trim-per-batch", action=argparse.BooleanOptionalAction, default=None,
-                           help="Trim each batch before final merge (default: auto, on for windows over 60 min)")
-    step2_group.add_argument("--out", help="Explicit output file path for Step 2 (e.g., /path/to/output.pcapng). If omitted, a timestamped file is written under the workspace.")
-    step2_group.add_argument("--no-precise-filter", action="store_true", help="Disable precise filtering in Step 2 (advanced)")
+    step2_group.add_argument(
+        "--trim-per-batch",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Trim each batch before final merge (default: auto, on for windows over 60 min)",
+    )
+    step2_group.add_argument(
+        "--out",
+        help="Explicit output file path for Step 2 (e.g., /path/to/output.pcapng). If omitted, a timestamped file is written under the workspace.",
+    )
+    step2_group.add_argument(
+        "--no-precise-filter",
+        action="store_true",
+        help="Disable precise filtering in Step 2 (advanced)",
+    )
 
     # Step 3: Cleaning parameters
     step3_group = ap.add_argument_group("Step 3: Cleaning")
     step3_group.add_argument("--snaplen", type=int, help="Truncate packets to N bytes")
-    step3_group.add_argument("--convert-to-pcap", action="store_true", help="Convert final output to pcap format")
+    step3_group.add_argument(
+        "--convert-to-pcap", action="store_true", help="Convert final output to pcap format"
+    )
     step3_group.add_argument("--gzip", action="store_true", help="Compress final output")
 
     # General options
@@ -98,8 +141,14 @@ def parse_args():
     ap.add_argument("--tmpdir", help="Temporary files directory")
     ap.add_argument("--cache", default="auto", help="Capinfos cache database path or 'auto'")
     ap.add_argument("--no-cache", action="store_true", help="Disable capinfos cache")
-    ap.add_argument("--clear-cache", action="store_true", help="Clear capinfos cache before running")
-    ap.add_argument("--dry-run", action="store_true", help="Show what would be selected/processed without doing it")
+    ap.add_argument(
+        "--clear-cache", action="store_true", help="Clear capinfos cache before running"
+    )
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be selected/processed without doing it",
+    )
     ap.add_argument("--verbose", action="store_true", help="Enable verbose logging")
 
     args = ap.parse_args()
@@ -167,7 +216,9 @@ def run_step1(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
         # Auto defaults: compute slop from the workflow window (works under --resume,
         # where the time flags are absent from args)
         duration_minutes = int((state.window.end - state.window.start).total_seconds() // 60)
-        slop_min = recommended_slop_min(duration_minutes) if args.slop_min is None else args.slop_min
+        slop_min = (
+            recommended_slop_min(duration_minutes) if args.slop_min is None else args.slop_min
+        )
 
         workers = parse_workers(args.workers, 1000)  # Estimate for auto calculation
 
@@ -179,13 +230,13 @@ def run_step1(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
             cache=cache,
             dry_run=args.dry_run,
             progress_callback=progress_cb,
-            selection_mode=args.selection_mode
+            selection_mode=args.selection_mode,
         )
 
         if not args.dry_run:
             files = state.selected_files or []
             print(f"Step 1 complete: {len(files)} files selected")
-            total_size_mb = sum(int(f.stat().st_size) for f in files if f.exists()) / (1024*1024)
+            total_size_mb = sum(int(f.stat().st_size) for f in files if f.exists()) / (1024 * 1024)
             print(f"   Total size: {total_size_mb:.1f} MB")
 
         return state
@@ -209,7 +260,11 @@ def run_step2(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
 
         # Auto defaults for Step 2 if not provided, keyed off the window duration
         duration_minutes = int((state.window.end - state.window.start).total_seconds() // 60)
-        batch_size = recommended_batch_size(duration_minutes) if args.batch_size is None else int(args.batch_size)
+        batch_size = (
+            recommended_batch_size(duration_minutes)
+            if args.batch_size is None
+            else int(args.batch_size)
+        )
         if trim_per_batch is None:
             trim_per_batch = recommended_trim_per_batch(duration_minutes)
 
@@ -239,7 +294,7 @@ def run_step2(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
 
         print("Step 2 complete: Processed file saved")
         if state.processed_file and state.processed_file.exists():
-            size_mb = state.processed_file.stat().st_size / (1024*1024)
+            size_mb = state.processed_file.stat().st_size / (1024 * 1024)
             print(f"   Output: {state.processed_file}")
             print(f"   Size: {size_mb:.1f} MB")
 
@@ -265,16 +320,18 @@ def run_step3(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
     # Collect cleaning options
     clean_options = {}
     if args.snaplen:
-        clean_options['snaplen'] = args.snaplen
+        clean_options["snaplen"] = args.snaplen
     if args.convert_to_pcap:
-        clean_options['convert_to_pcap'] = True
+        clean_options["convert_to_pcap"] = True
     if args.gzip:
-        clean_options['gzip'] = True
+        clean_options["gzip"] = True
 
     # No options requested: nothing to clean. Do not silently convert or
     # compress -- Step 2's output is already the final artifact.
     if not clean_options:
-        print("[3/3] No cleaning options requested; skipping (use --snaplen/--convert-to-pcap/--gzip)")
+        print(
+            "[3/3] No cleaning options requested; skipping (use --snaplen/--convert-to-pcap/--gzip)"
+        )
         state.cleaned_file = state.processed_file
         state.step3_complete = True
         state.save(workflow.state_file)
@@ -286,10 +343,7 @@ def run_step3(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
 
     try:
         state = workflow.step3_clean(
-            state=state,
-            options=clean_options,
-            progress_callback=progress_cb,
-            verbose=args.verbose
+            state=state, options=clean_options, progress_callback=progress_cb, verbose=args.verbose
         )
 
         # Honor --out: the final cleaned artifact lands at the requested path
@@ -304,7 +358,7 @@ def run_step3(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
 
         print("Step 3 complete: Cleaned file saved")
         if state.cleaned_file and state.cleaned_file.exists():
-            size_mb = state.cleaned_file.stat().st_size / (1024*1024)
+            size_mb = state.cleaned_file.stat().st_size / (1024 * 1024)
             print(f"   Output: {state.cleaned_file}")
             print(f"   Size: {size_mb:.1f} MB")
 
@@ -325,20 +379,20 @@ def show_status(workflow: ThreeStepWorkflow):
         print(f"   Time window: {summary['window']}")
         print()
 
-        steps = summary['steps_complete']
+        steps = summary["steps_complete"]
         print(f"   Step 1 (Select): {'complete' if steps['step1_select'] else 'pending'}")
-        if 'selected_files' in summary:
-            sf = summary['selected_files']
+        if "selected_files" in summary:
+            sf = summary["selected_files"]
             print(f"            Files: {sf['count']}, Size: {sf['total_size_mb']} MB")
 
         print(f"   Step 2 (Process): {'complete' if steps['step2_process'] else 'pending'}")
-        if 'processed_file' in summary:
-            pf = summary['processed_file']
+        if "processed_file" in summary:
+            pf = summary["processed_file"]
             print(f"            File: {Path(pf['path']).name}, Size: {pf['size_mb']} MB")
 
         print(f"   Step 3 (Clean): {'complete' if steps['step3_clean'] else 'pending'}")
-        if 'cleaned_file' in summary:
-            cf = summary['cleaned_file']
+        if "cleaned_file" in summary:
+            cf = summary["cleaned_file"]
             print(f"            File: {Path(cf['path']).name}, Size: {cf['size_mb']} MB")
 
     except PCAPPullerError as e:
@@ -374,7 +428,7 @@ def main():
                 root_dirs=root_dirs,
                 window=window,
                 include_patterns=args.include_pattern,
-                exclude_patterns=args.exclude_pattern
+                exclude_patterns=args.exclude_pattern,
             )
 
         # Preflight: verify the Wireshark tools the requested steps will need,
@@ -411,7 +465,7 @@ def main():
         if args.step == "all" or (args.step == "3" and state.step3_complete):
             final_file = state.cleaned_file or state.processed_file
             if final_file and final_file.exists():
-                size_mb = final_file.stat().st_size / (1024*1024)
+                size_mb = final_file.stat().st_size / (1024 * 1024)
                 print()
                 print("Workflow complete.")
                 print(f"   Final output: {final_file}")

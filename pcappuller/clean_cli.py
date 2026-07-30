@@ -152,7 +152,9 @@ def clean_pipeline(
     if start_dt and end_dt:
         trimmed = out_dir / f"{base}.trim{suffix}"
         logging.info("Trimming time window: %s .. %s -> %s", start_dt, end_dt, trimmed)
-        run_editcap_trim(current, trimmed, start_dt, end_dt, out_format=suffix.lstrip("."), verbose=verbose)
+        run_editcap_trim(
+            current, trimmed, start_dt, end_dt, out_format=suffix.lstrip("."), verbose=verbose
+        )
         current = trimmed
     elif (start_dt and not end_dt) or (end_dt and not start_dt):
         raise PCAPPullerError("Provide both --start and --end for time trimming, or neither.")
@@ -168,7 +170,9 @@ def clean_pipeline(
     if display_filter:
         f_out = out_dir / f"{base}.filt{suffix}"
         logging.info("Applying display filter '%s' -> %s", display_filter, f_out)
-        run_tshark_filter(current, f_out, display_filter, out_format=suffix.lstrip("."), verbose=verbose)
+        run_tshark_filter(
+            current, f_out, display_filter, out_format=suffix.lstrip("."), verbose=verbose
+        )
         current = f_out
 
     # 6) Optional split
@@ -200,7 +204,9 @@ def main():
 
     try:
         input_path = Path(args.input)
-        out_dir = Path(args.out_dir) if args.out_dir else input_path.with_name(input_path.name + "_clean")
+        out_dir = (
+            Path(args.out_dir) if args.out_dir else input_path.with_name(input_path.name + "_clean")
+        )
 
         start_dt = parse_dt_flexible(args.start) if args.start else None
         end_dt = parse_dt_flexible(args.end) if args.end else None

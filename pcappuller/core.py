@@ -51,7 +51,9 @@ def parse_workers(value: str | int, total_files: int) -> int:
             try:
                 w = int(v)
             except ValueError:
-                raise PCAPPullerError(f"Invalid --workers value: {value}. Use 'auto' or an integer.")
+                raise PCAPPullerError(
+                    f"Invalid --workers value: {value}. Use 'auto' or an integer."
+                )
     return max(1, min(w, 64))
 
 
@@ -129,6 +131,7 @@ def precise_filter_parallel(
     shown = 0
     failures = 0
     total = len(files)
+
     def _get_bounds(p: Path):
         if cache:
             cached = cache.get(p)
@@ -171,7 +174,9 @@ def precise_filter_parallel(
             if progress:
                 progress("precise", done_count, total)
     if failures:
-        logging.warning("capinfos could not read %d of %d files during precise filtering", failures, total)
+        logging.warning(
+            "capinfos could not read %d of %d files during precise filtering", failures, total
+        )
     if not kept and failures:
         raise PCAPPullerError(
             f"Precise filtering kept no files, and capinfos failed on {failures} of {total} files. "
@@ -210,7 +215,9 @@ def build_output(
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        with tempfile.TemporaryDirectory(dir=str(tmpdir_parent) if tmpdir_parent else None) as tmpdir:
+        with tempfile.TemporaryDirectory(
+            dir=str(tmpdir_parent) if tmpdir_parent else None
+        ) as tmpdir:
             tmpdir_path = Path(tmpdir)
             intermediate_files: List[Path] = []
 
@@ -230,7 +237,9 @@ def build_output(
                 if trim_per_batch:
                     # Trim this batch now to reduce size
                     trimmed_batch = tmpdir_path / f"batch_{i:05d}_trimmed.{out_format}"
-                    run_editcap_trim(interm, trimmed_batch, window.start, window.end, out_format, verbose=verbose)
+                    run_editcap_trim(
+                        interm, trimmed_batch, window.start, window.end, out_format, verbose=verbose
+                    )
                     if progress:
                         progress("trim-batches", i, len(batches))
                     intermediate_files.append(trimmed_batch)
@@ -245,7 +254,9 @@ def build_output(
                     trimmed_all = intermediate_files[0]
                 else:
                     trimmed_all = tmpdir_path / f"merged_all_trimmed.{out_format}"
-                    merge_batch(intermediate_files, trimmed_all, verbose=verbose, out_format=out_format)
+                    merge_batch(
+                        intermediate_files, trimmed_all, verbose=verbose, out_format=out_format
+                    )
                 src_for_filter = trimmed_all
             else:
                 # Combine to one file then trim once
@@ -256,7 +267,9 @@ def build_output(
                     merge_batch(intermediate_files, merged_all, verbose=verbose)
                 # Trim to time window in desired format
                 trimmed = tmpdir_path / f"trimmed.{out_format}"
-                run_editcap_trim(merged_all, trimmed, window.start, window.end, out_format, verbose=verbose)
+                run_editcap_trim(
+                    merged_all, trimmed, window.start, window.end, out_format, verbose=verbose
+                )
                 if progress:
                     progress("trim", 1, 1)
                 src_for_filter = trimmed
@@ -264,7 +277,9 @@ def build_output(
             # Optional display filter via tshark
             if display_filter:
                 final_uncompressed = tmpdir_path / f"final.{out_format}"
-                run_tshark_filter(src_for_filter, final_uncompressed, display_filter, out_format, verbose=verbose)
+                run_tshark_filter(
+                    src_for_filter, final_uncompressed, display_filter, out_format, verbose=verbose
+                )
                 if progress:
                     progress("display-filter", 1, 1)
             else:
@@ -272,7 +287,11 @@ def build_output(
 
             # Optional gzip compression
             if gzip_out:
-                final_gz = out_path if str(out_path).endswith(".gz") else out_path.with_suffix(out_path.suffix + ".gz")
+                final_gz = (
+                    out_path
+                    if str(out_path).endswith(".gz")
+                    else out_path.with_suffix(out_path.suffix + ".gz")
+                )
                 gzip_file(final_uncompressed, final_gz)
                 if progress:
                     progress("gzip", 1, 1)
@@ -282,11 +301,17 @@ def build_output(
                 shutil.move(str(final_uncompressed), str(out_path))
                 return out_path
     except OSError as oe:
-        hint = " Provide a larger temp location with --tmpdir /path/on/big/volume" if tmpdir_parent is None else ""
+        hint = (
+            " Provide a larger temp location with --tmpdir /path/on/big/volume"
+            if tmpdir_parent is None
+            else ""
+        )
         raise TempSpaceError(f"OS error while handling temporary files: {oe}.{hint}")
 
 
-def summarize_first_last(files: Sequence[Path], workers: int, cache: Optional[CapinfosCache] = None) -> Optional[Tuple[float, float]]:
+def summarize_first_last(
+    files: Sequence[Path], workers: int, cache: Optional[CapinfosCache] = None
+) -> Optional[Tuple[float, float]]:
     """Return (min_first_epoch, max_last_epoch) across files using capinfos in parallel.
     Returns None if no readable times.
     """
@@ -295,6 +320,7 @@ def summarize_first_last(files: Sequence[Path], workers: int, cache: Optional[Ca
     which_or_error("capinfos")
     firsts: List[float] = []
     lasts: List[float] = []
+
     def _get_bounds(p: Path):
         if cache:
             hit = cache.get(p)
@@ -317,7 +343,9 @@ def summarize_first_last(files: Sequence[Path], workers: int, cache: Optional[Ca
     return (min(firsts), max(lasts))
 
 
-def collect_file_metadata(files: Sequence[Path], workers: int, cache: Optional[CapinfosCache] = None) -> List[Dict[str, object]]:
+def collect_file_metadata(
+    files: Sequence[Path], workers: int, cache: Optional[CapinfosCache] = None
+) -> List[Dict[str, object]]:
     """Collect per-file metadata including size, mtime, and first/last epochs.
     Returns a list of dicts with keys: path, size, mtime, first, last.
     """

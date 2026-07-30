@@ -4,6 +4,7 @@ Every test is pure-unit: no Wireshark tools are invoked. Subprocess calls
 are faked at the pcappuller.tools boundary, and pcap files are minimal
 hand-written byte structures.
 """
+
 from __future__ import annotations
 
 import struct

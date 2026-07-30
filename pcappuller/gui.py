@@ -52,7 +52,9 @@ def _sweep_stale_workspaces(max_age_days: int = STALE_WORKSPACE_AGE_DAYS) -> Non
         pass
 
 
-def _open_advanced_settings_v2(parent: "sg.Window", reco: dict, current: dict | None) -> dict | None:
+def _open_advanced_settings_v2(
+    parent: "sg.Window", reco: dict, current: dict | None
+) -> dict | None:
     """Advanced settings dialog for v2 workflow."""
     cur = {
         "workers": (current.get("workers") if current else reco["workers"]),
@@ -66,13 +68,39 @@ def _open_advanced_settings_v2(parent: "sg.Window", reco: dict, current: dict | 
         [sg.Text("Advanced Settings (override recommendations)", font=("Arial", 12, "bold"))],
         [sg.HSeparator()],
         [sg.Text("Step 1: Selection", font=("Arial", 10, "bold"))],
-        [sg.Text("Workers"), sg.Input(str(cur["workers"]), key="-A-WORKERS-", size=(8,1)), sg.Text("(use 'auto' or integer 1-64)")],
-        [sg.Text("Slop min"), sg.Input(str(cur["slop"]), key="-A-SLOP-", size=(8,1)), sg.Text("Extra minutes around window for mtime prefilter")],
-        [sg.Checkbox("Precise filter", key="-A-PRECISE-", default=bool(cur["precise_filter"]), tooltip="Use capinfos to verify packet times")],
+        [
+            sg.Text("Workers"),
+            sg.Input(str(cur["workers"]), key="-A-WORKERS-", size=(8, 1)),
+            sg.Text("(use 'auto' or integer 1-64)"),
+        ],
+        [
+            sg.Text("Slop min"),
+            sg.Input(str(cur["slop"]), key="-A-SLOP-", size=(8, 1)),
+            sg.Text("Extra minutes around window for mtime prefilter"),
+        ],
+        [
+            sg.Checkbox(
+                "Precise filter",
+                key="-A-PRECISE-",
+                default=bool(cur["precise_filter"]),
+                tooltip="Use capinfos to verify packet times",
+            )
+        ],
         [sg.HSeparator()],
         [sg.Text("Step 2: Processing", font=("Arial", 10, "bold"))],
-        [sg.Text("Batch size"), sg.Input(str(cur["batch"]), key="-A-BATCH-", size=(8,1)), sg.Text("Files per merge batch")],
-        [sg.Checkbox("Trim per batch", key="-A-TRIMPB-", default=bool(cur["trim_per_batch"]), tooltip="Trim each batch vs final file only")],
+        [
+            sg.Text("Batch size"),
+            sg.Input(str(cur["batch"]), key="-A-BATCH-", size=(8, 1)),
+            sg.Text("Files per merge batch"),
+        ],
+        [
+            sg.Checkbox(
+                "Trim per batch",
+                key="-A-TRIMPB-",
+                default=bool(cur["trim_per_batch"]),
+                tooltip="Trim each batch vs final file only",
+            )
+        ],
         [sg.HSeparator()],
         [sg.Button("Save"), sg.Button("Cancel")],
     ]
@@ -157,7 +185,9 @@ def _open_filters_dialog(parent: "sg.Window") -> str | None:
     return selected
 
 
-def _open_pattern_settings(parent: "sg.Window", current_include: list, current_exclude: list) -> tuple | None:
+def _open_pattern_settings(
+    parent: "sg.Window", current_include: list, current_exclude: list
+) -> tuple | None:
     """Pattern settings dialog for file filtering."""
     layout = [
         [sg.Text("File Pattern Filtering", font=("Arial", 12, "bold"))],
@@ -202,12 +232,15 @@ def _open_pattern_settings(parent: "sg.Window", current_include: list, current_e
     return None
 
 
-def run_workflow_v2(values: dict, window: "sg.Window", stop_flag: dict, adv_overrides: dict | None) -> None:
+def run_workflow_v2(
+    values: dict, window: "sg.Window", stop_flag: dict, adv_overrides: dict | None
+) -> None:
     """Run the three-step workflow in a worker thread.
 
     Every UI update goes through window.write_event_value: Tk widgets are not
     thread-safe, so the event loop owns all widget updates, including log text.
     """
+
     def log(msg: str) -> None:
         window.write_event_value("-LOG-", msg)
 
@@ -227,7 +260,10 @@ def run_workflow_v2(values: dict, window: "sg.Window", stop_flag: dict, adv_over
         if ws_value:
             workspace_dir = Path(ws_value)
         else:
-            workspace_dir = Path(tempfile.gettempdir()) / f"pcappuller_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            workspace_dir = (
+                Path(tempfile.gettempdir())
+                / f"pcappuller_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            )
             auto_workspace = True
 
         workflow = ThreeStepWorkflow(workspace_dir)
@@ -258,7 +294,7 @@ def run_workflow_v2(values: dict, window: "sg.Window", stop_flag: dict, adv_over
                 root_dirs=roots,
                 window=window_obj,
                 include_patterns=include_patterns,
-                exclude_patterns=exclude_patterns
+                exclude_patterns=exclude_patterns,
             )
         else:
             # Steps 2/3 only: continue the workflow already in the workspace
@@ -314,7 +350,9 @@ def run_workflow_v2(values: dict, window: "sg.Window", stop_flag: dict, adv_over
             log(f"  Source: {values.get('-SOURCE-')}")
         log(f"  Window: {window_obj.start} .. {window_obj.end}")
         log(f"  Output: {values.get('-OUT-', '') or '(workspace default)'}")
-        log(f"  Effective settings: workers={eff_settings['workers']}, batch={eff_settings['batch']}, slop={eff_settings['slop']}, trim_per_batch={eff_settings['trim_per_batch']}, precise_in_step2={eff_settings['precise_filter']}")
+        log(
+            f"  Effective settings: workers={eff_settings['workers']}, batch={eff_settings['batch']}, slop={eff_settings['slop']}, trim_per_batch={eff_settings['trim_per_batch']}, precise_in_step2={eff_settings['precise_filter']}"
+        )
 
         # Step 1: Select and Move
         if run_step1:
@@ -328,27 +366,32 @@ def run_workflow_v2(values: dict, window: "sg.Window", stop_flag: dict, adv_over
                 workers=workers,
                 cache=cache,
                 dry_run=values.get("-DRYRUN-", False),
-                progress_callback=progress_callback
+                progress_callback=progress_callback,
             )
 
             selected = state.selected_files or []
             if values.get("-DRYRUN-", False):
-                total_size = sum(f.stat().st_size for f in selected if f.exists()) / (1024*1024)
-                window.write_event_value("-DONE-", f"Dry-run complete: {len(selected)} files selected ({total_size:.1f} MB)")
+                total_size = sum(f.stat().st_size for f in selected if f.exists()) / (1024 * 1024)
+                window.write_event_value(
+                    "-DONE-",
+                    f"Dry-run complete: {len(selected)} files selected ({total_size:.1f} MB)",
+                )
                 return
 
             if not selected:
                 log("Step 1 selected 0 files.")
                 window.write_event_value("-DONE-", "No files selected in Step 1")
                 return
-            total_size_mb = sum(f.stat().st_size for f in selected if f.exists()) / (1024*1024)
+            total_size_mb = sum(f.stat().st_size for f in selected if f.exists()) / (1024 * 1024)
             log(f"Step 1 selected {len(selected)} files ({total_size_mb:.1f} MB)")
 
         # Step 2: Process
         if run_step2:
             window.write_event_value("-STEP-UPDATE-", ("Step 2: Processing files...", 2))
             log("Step 2: Applying precise filter and processing...")
-            log(f"  Batch size: {eff_settings['batch']} | Trim per batch: {eff_settings['trim_per_batch']}")
+            log(
+                f"  Batch size: {eff_settings['batch']} | Trim per batch: {eff_settings['trim_per_batch']}"
+            )
             if values.get("-DFILTER-"):
                 log(f"  Display filter: {values['-DFILTER-']}")
 
@@ -363,7 +406,9 @@ def run_workflow_v2(values: dict, window: "sg.Window", stop_flag: dict, adv_over
                 out_path=(Path(values["-OUT-"]) if values.get("-OUT-") else None),
                 tmpdir_parent=(Path(values["-TMPDIR-"]) if values.get("-TMPDIR-") else None),
                 precise_filter=eff_settings["precise_filter"],
-                workers=parse_workers(eff_settings["workers"], len(state.selected_files or []) or 1000),
+                workers=parse_workers(
+                    eff_settings["workers"], len(state.selected_files or []) or 1000
+                ),
                 cache=cache,
             )
 
@@ -381,15 +426,17 @@ def run_workflow_v2(values: dict, window: "sg.Window", stop_flag: dict, adv_over
                     state=state,
                     options=clean_options,
                     progress_callback=progress_callback,
-                    verbose=values.get("-VERBOSE-", False)
+                    verbose=values.get("-VERBOSE-", False),
                 )
 
         # Determine final output
         final_file = state.cleaned_file or state.processed_file
         if final_file and final_file.exists():
-            size_mb = final_file.stat().st_size / (1024*1024)
+            size_mb = final_file.stat().st_size / (1024 * 1024)
             window.write_event_value("-WORKFLOW-RESULT-", str(final_file))
-            window.write_event_value("-DONE-", f"Workflow complete. Final output: {final_file} ({size_mb:.1f} MB)")
+            window.write_event_value(
+                "-DONE-", f"Workflow complete. Final output: {final_file} ({size_mb:.1f} MB)"
+            )
         else:
             window.write_event_value("-DONE-", "Workflow complete but no output file found")
 
@@ -410,9 +457,15 @@ def run_workflow_v2(values: dict, window: "sg.Window", stop_flag: dict, adv_over
             and workspace_dir.name.startswith("pcappuller_")
             and workspace_dir.parent == Path(tempfile.gettempdir())
         ):
-            output_inside = final_file is not None and final_file.exists() and workspace_dir in final_file.parents
+            output_inside = (
+                final_file is not None
+                and final_file.exists()
+                and workspace_dir in final_file.parents
+            )
             if output_inside:
-                window.write_event_value("-LOG-", f"Workspace kept (contains the output): {workspace_dir}")
+                window.write_event_value(
+                    "-LOG-", f"Workspace kept (contains the output): {workspace_dir}"
+                )
             else:
                 shutil.rmtree(workspace_dir, ignore_errors=True)
 
@@ -421,6 +474,7 @@ def _find_icon() -> str | None:
     """Locate the window icon: packaged asset first, repo layout as fallback."""
     try:
         from importlib.resources import files
+
         res = files("pcappuller") / "assets" / "pcappuller.png"
         if res.is_file():
             return str(res)
@@ -455,61 +509,155 @@ def main():
     layout = [
         [sg.Text("PCAPpuller - Three-Step Workflow", font=("Arial", 14, "bold"))],
         [sg.HSeparator()],
-
         # Basic settings
         [sg.Text("Source Directory"), sg.Input(key="-SOURCE-", expand_x=True), sg.FolderBrowse()],
         [sg.Text("Start Time (YYYY-MM-DD HH:MM:SS)"), sg.Input(key="-START-", expand_x=True)],
-        [sg.Text("Duration"),
-         sg.Text("Hours"), sg.Slider(range=(0, 24), orientation="h", key="-HOURS-", default_value=0, size=(20,15), enable_events=True),
-         sg.Text("Minutes"), sg.Slider(range=(0, 59), orientation="h", key="-MINS-", default_value=15, size=(20,15), enable_events=True),
-         sg.Button("All Day", key="-ALLDAY-")],
+        [
+            sg.Text("Duration"),
+            sg.Text("Hours"),
+            sg.Slider(
+                range=(0, 24),
+                orientation="h",
+                key="-HOURS-",
+                default_value=0,
+                size=(20, 15),
+                enable_events=True,
+            ),
+            sg.Text("Minutes"),
+            sg.Slider(
+                range=(0, 59),
+                orientation="h",
+                key="-MINS-",
+                default_value=15,
+                size=(20, 15),
+                enable_events=True,
+            ),
+            sg.Button("All Day", key="-ALLDAY-"),
+        ],
         [sg.Text("Output File"), sg.Input(key="-OUT-", expand_x=True), sg.FileSaveAs()],
-        [sg.Text("Temporary Directory"), sg.Input(key="-TMPDIR-", expand_x=True), sg.FolderBrowse()],
-        [sg.Text("Workspace (optional)"), sg.Input(key="-WORKSPACE-", expand_x=True, tooltip="Existing workspace folder; required to run Steps 2/3 without Step 1"), sg.FolderBrowse(),
-         sg.Checkbox("Keep workspace", key="-KEEP-WS-", tooltip="Keep the auto-created temp workspace after the run")],
-
+        [
+            sg.Text("Temporary Directory"),
+            sg.Input(key="-TMPDIR-", expand_x=True),
+            sg.FolderBrowse(),
+        ],
+        [
+            sg.Text("Workspace (optional)"),
+            sg.Input(
+                key="-WORKSPACE-",
+                expand_x=True,
+                tooltip="Existing workspace folder; required to run Steps 2/3 without Step 1",
+            ),
+            sg.FolderBrowse(),
+            sg.Checkbox(
+                "Keep workspace",
+                key="-KEEP-WS-",
+                tooltip="Keep the auto-created temp workspace after the run",
+            ),
+        ],
         [sg.HSeparator()],
-
         # Workflow steps
-        [sg.Frame("Workflow Steps", [
-            [sg.Checkbox("Step 1: Select & Filter Files", key="-RUN-STEP1-", default=True, tooltip="Filter and select relevant files into the workspace")],
-            [sg.Checkbox("Step 2: Merge & Process", key="-RUN-STEP2-", default=True, tooltip="Merge, trim, and filter selected files")],
-            [sg.Checkbox("Step 3: Clean & Compress", key="-RUN-STEP3-", default=False, tooltip="Remove headers/metadata and compress")],
-        ], expand_x=True)],
-
+        [
+            sg.Frame(
+                "Workflow Steps",
+                [
+                    [
+                        sg.Checkbox(
+                            "Step 1: Select & Filter Files",
+                            key="-RUN-STEP1-",
+                            default=True,
+                            tooltip="Filter and select relevant files into the workspace",
+                        )
+                    ],
+                    [
+                        sg.Checkbox(
+                            "Step 2: Merge & Process",
+                            key="-RUN-STEP2-",
+                            default=True,
+                            tooltip="Merge, trim, and filter selected files",
+                        )
+                    ],
+                    [
+                        sg.Checkbox(
+                            "Step 3: Clean & Compress",
+                            key="-RUN-STEP3-",
+                            default=False,
+                            tooltip="Remove headers/metadata and compress",
+                        )
+                    ],
+                ],
+                expand_x=True,
+            )
+        ],
         [sg.HSeparator()],
-
         # Step 2 & 3 settings
-        [sg.Frame("Processing Options", [
-            [sg.Text("Output Format"), sg.Combo(values=["pcap", "pcapng"], default_value="pcapng", key="-FORMAT-"),
-             sg.Checkbox("Verbose", key="-VERBOSE-"), sg.Checkbox("Dry Run", key="-DRYRUN-")],
-            [sg.Text("Display Filter"), sg.Input(key="-DFILTER-", expand_x=True), sg.Button("Filters...", key="-DFILTERS-")],
-        ], expand_x=True)],
-
-        [sg.Frame("Step 3: Cleaning Options", [
-            [sg.Text("Snaplen (bytes)"), sg.Input("", key="-CLEAN-SNAPLEN-", size=(8,1), tooltip="Truncate packets to save space (leave blank to keep full payload)"),
-             sg.Checkbox("Convert to PCAP", key="-CLEAN-CONVERT-", tooltip="Force conversion to pcap format"),
-             sg.Checkbox("Gzip Compress", key="-GZIP-", tooltip="Compress final output")],
-        ], expand_x=True)],
-
+        [
+            sg.Frame(
+                "Processing Options",
+                [
+                    [
+                        sg.Text("Output Format"),
+                        sg.Combo(values=["pcap", "pcapng"], default_value="pcapng", key="-FORMAT-"),
+                        sg.Checkbox("Verbose", key="-VERBOSE-"),
+                        sg.Checkbox("Dry Run", key="-DRYRUN-"),
+                    ],
+                    [
+                        sg.Text("Display Filter"),
+                        sg.Input(key="-DFILTER-", expand_x=True),
+                        sg.Button("Filters...", key="-DFILTERS-"),
+                    ],
+                ],
+                expand_x=True,
+            )
+        ],
+        [
+            sg.Frame(
+                "Step 3: Cleaning Options",
+                [
+                    [
+                        sg.Text("Snaplen (bytes)"),
+                        sg.Input(
+                            "",
+                            key="-CLEAN-SNAPLEN-",
+                            size=(8, 1),
+                            tooltip="Truncate packets to save space (leave blank to keep full payload)",
+                        ),
+                        sg.Checkbox(
+                            "Convert to PCAP",
+                            key="-CLEAN-CONVERT-",
+                            tooltip="Force conversion to pcap format",
+                        ),
+                        sg.Checkbox("Gzip Compress", key="-GZIP-", tooltip="Compress final output"),
+                    ],
+                ],
+                expand_x=True,
+            )
+        ],
         [sg.HSeparator()],
-
         # Recommended settings display
-        [sg.Text("Recommended settings based on duration", key="-RECO-INFO-", size=(100,2), text_color="gray")],
-        [sg.Text("", key="-STATUS-", size=(80,1))],
+        [
+            sg.Text(
+                "Recommended settings based on duration",
+                key="-RECO-INFO-",
+                size=(100, 2),
+                text_color="gray",
+            )
+        ],
+        [sg.Text("", key="-STATUS-", size=(80, 1))],
         [sg.ProgressBar(100, orientation="h", size=(40, 20), key="-PB-")],
-        [sg.Text("Current Step: ", size=(15,1)), sg.Text("Ready", key="-CURRENT-STEP-", text_color="blue")],
-
+        [
+            sg.Text("Current Step: ", size=(15, 1)),
+            sg.Text("Ready", key="-CURRENT-STEP-", text_color="blue"),
+        ],
         [sg.HSeparator()],
-
         # Action buttons
-        [sg.Text("", expand_x=True),
-         sg.Button("Pattern Settings", key="-PATTERNS-"),
-         sg.Button("Advanced Settings", key="-SETTINGS-"),
-         sg.Button("Run Workflow"),
-         sg.Button("Cancel"),
-         sg.Button("Exit")],
-
+        [
+            sg.Text("", expand_x=True),
+            sg.Button("Pattern Settings", key="-PATTERNS-"),
+            sg.Button("Advanced Settings", key="-SETTINGS-"),
+            sg.Button("Run Workflow"),
+            sg.Button("Cancel"),
+            sg.Button("Exit"),
+        ],
         # Output area
         [sg.Output(size=(100, 15))],
     ]
@@ -534,7 +682,7 @@ def main():
             vals = values or {}
             h = int(vals.get("-HOURS-", 0) or 0)
             m = int(vals.get("-MINS-", 15) or 0)
-            dur = min(h*60 + m, 1440)
+            dur = min(h * 60 + m, 1440)
             reco = recommended_settings(dur)
             parts = [
                 f"workers={reco['workers']}",
@@ -578,7 +726,9 @@ def main():
                     continue
 
             # Check if any steps are selected
-            if not any([values.get("-RUN-STEP1-"), values.get("-RUN-STEP2-"), values.get("-RUN-STEP3-")]):
+            if not any(
+                [values.get("-RUN-STEP1-"), values.get("-RUN-STEP2-"), values.get("-RUN-STEP3-")]
+            ):
                 sg.popup_error("At least one workflow step must be selected")
                 continue
 
@@ -591,7 +741,7 @@ def main():
                 resp = sg.popup_ok_cancel(
                     "Warning: Long window (>60 min) can take a long time.\n"
                     "Consider using Dry Run first to preview file selection.",
-                    title="Long window warning"
+                    title="Long window warning",
                 )
                 if resp != "OK":
                     continue
@@ -602,7 +752,9 @@ def main():
 
             stop_flag["stop"] = False
             window["-STATUS-"].update("Starting workflow...")
-            worker = threading.Thread(target=run_workflow_v2, args=(values, window, stop_flag, adv_overrides), daemon=True)
+            worker = threading.Thread(
+                target=run_workflow_v2, args=(values, window, stop_flag, adv_overrides), daemon=True
+            )
             worker.start()
 
         elif event == "Cancel":
@@ -618,8 +770,12 @@ def main():
                 print(f"  Exclude: {exclude_patterns}")
 
         elif event == "-SETTINGS-":
-            duration = min(int(values.get("-HOURS-", 0) or 0) * 60 + int(values.get("-MINS-", 0) or 0), 1440)
-            adv_overrides = _open_advanced_settings_v2(window, recommended_settings(duration), adv_overrides)
+            duration = min(
+                int(values.get("-HOURS-", 0) or 0) * 60 + int(values.get("-MINS-", 0) or 0), 1440
+            )
+            adv_overrides = _open_advanced_settings_v2(
+                window, recommended_settings(duration), adv_overrides
+            )
             _update_reco_label(values)
 
         elif event in ("-HOURS-", "-MINS-"):

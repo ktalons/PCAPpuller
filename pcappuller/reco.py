@@ -4,6 +4,7 @@ One table keyed by window duration: short windows tolerate large merge
 batches and need wide mtime slop; long windows reverse both, and switch
 per-batch trimming on to cap temp-space use.
 """
+
 from __future__ import annotations
 
 # (max_duration_minutes, batch_size, slop_min)

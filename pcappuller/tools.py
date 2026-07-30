@@ -27,7 +27,9 @@ def which_or_error(name: str) -> str:
     if os.name == "nt":
         common_dirs = [
             os.path.join(os.environ.get("ProgramFiles", r"C:\\Program Files"), "Wireshark"),
-            os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\\Program Files (x86)"), "Wireshark"),
+            os.path.join(
+                os.environ.get("ProgramFiles(x86)", r"C:\\Program Files (x86)"), "Wireshark"
+            ),
         ]
         for d in common_dirs:
             candidate = str(Path(d) / f"{name}.exe")
@@ -36,7 +38,9 @@ def which_or_error(name: str) -> str:
     raise ToolNotFoundError(f"'{name}' not found in PATH. Please install Wireshark CLI tools.")
 
 
-def merge_batch(inputs: Sequence[Path], out_path: Path, verbose: bool = False, out_format: str | None = None) -> None:
+def merge_batch(
+    inputs: Sequence[Path], out_path: Path, verbose: bool = False, out_format: str | None = None
+) -> None:
     """Merge inputs into out_path. Pass out_format when the output name implies
     a specific container: mergecap defaults to pcapng regardless of extension."""
     fmt_flag = ["-F", out_format] if out_format else []
@@ -44,7 +48,9 @@ def merge_batch(inputs: Sequence[Path], out_path: Path, verbose: bool = False, o
     _run(cmd, verbose)
 
 
-def run_editcap_trim(src: Path, dst: Path, start_dt, end_dt, out_format: str, verbose: bool = False) -> None:
+def run_editcap_trim(
+    src: Path, dst: Path, start_dt, end_dt, out_format: str, verbose: bool = False
+) -> None:
     fmt_flag = ["-F", out_format] if out_format else []
     start_str = start_dt.strftime("%Y-%m-%d %H:%M:%S")
     end_str = end_dt.strftime("%Y-%m-%d %H:%M:%S")
@@ -52,7 +58,9 @@ def run_editcap_trim(src: Path, dst: Path, start_dt, end_dt, out_format: str, ve
     _run(cmd, verbose)
 
 
-def run_editcap_snaplen(src: Path, dst: Path, snaplen: int, out_format: str | None = None, verbose: bool = False) -> None:
+def run_editcap_snaplen(
+    src: Path, dst: Path, snaplen: int, out_format: str | None = None, verbose: bool = False
+) -> None:
     """Truncate frames to snaplen bytes, optionally converting format via -F."""
     fmt_flag = ["-F", out_format] if out_format else []
     cmd = ["editcap", "-s", str(int(snaplen)), *fmt_flag, str(src), str(dst)]
@@ -84,7 +92,9 @@ def run_reordercap(src: Path, dst: Path, verbose: bool = False) -> None:
     _run(cmd, verbose)
 
 
-def run_tshark_filter(src: Path, dst: Path, display_filter: str, out_format: str, verbose: bool = False) -> None:
+def run_tshark_filter(
+    src: Path, dst: Path, display_filter: str, out_format: str, verbose: bool = False
+) -> None:
     fmt_flag = ["-F", out_format] if out_format else []
     cmd = ["tshark", "-r", str(src), "-Y", display_filter, "-w", str(dst), *fmt_flag]
     _run(cmd, verbose)

@@ -5,6 +5,7 @@ Writes three in-window captures and one out-of-window capture whose packet
 times AND file mtimes both sit outside the smoke window, so both the mtime
 prefilter and the precise filter are exercised.
 """
+
 import os
 import struct
 import sys

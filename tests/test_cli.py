@@ -1,4 +1,5 @@
 """Unit tests for pcappuller.cli: argument parsing, exit codes, and preflight wiring."""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -23,10 +24,14 @@ def _argv(monkeypatch, *args: str) -> None:
 
 def _required_args(workspace: str = "ws", source: str = "src") -> list[str]:
     return [
-        "--workspace", workspace,
-        "--source", source,
-        "--start", "2026-01-01 10:00:00",
-        "--minutes", "30",
+        "--workspace",
+        workspace,
+        "--source",
+        source,
+        "--start",
+        "2026-01-01 10:00:00",
+        "--minutes",
+        "30",
     ]
 
 
@@ -62,8 +67,14 @@ def test_minutes_out_of_range_exits_2(monkeypatch, capsys, minutes):
     """--minutes outside 1..1440 is rejected with exit code 2."""
     _argv(
         monkeypatch,
-        "--workspace", "ws", "--source", "src",
-        "--start", "2026-01-01 10:00:00", "--minutes", minutes,
+        "--workspace",
+        "ws",
+        "--source",
+        "src",
+        "--start",
+        "2026-01-01 10:00:00",
+        "--minutes",
+        minutes,
     )
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -75,9 +86,16 @@ def test_minutes_and_end_mutually_exclusive(monkeypatch, capsys):
     """--minutes and --end share a mutually exclusive group: exit code 2."""
     _argv(
         monkeypatch,
-        "--workspace", "ws", "--source", "src",
-        "--start", "2026-01-01 10:00:00",
-        "--minutes", "30", "--end", "2026-01-01 11:00:00",
+        "--workspace",
+        "ws",
+        "--source",
+        "src",
+        "--start",
+        "2026-01-01 10:00:00",
+        "--minutes",
+        "30",
+        "--end",
+        "2026-01-01 11:00:00",
     )
     with pytest.raises(SystemExit) as exc:
         cli.main()

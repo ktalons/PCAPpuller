@@ -1,4 +1,5 @@
 """Unit tests for pcappuller.cache.CapinfosCache against a tmp_path sqlite db."""
+
 from __future__ import annotations
 
 import os
