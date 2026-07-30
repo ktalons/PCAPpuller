@@ -4,15 +4,19 @@ import datetime as dt
 import logging
 import os
 import shutil
-import subprocess
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
+try:
+    import resource
+except ImportError:  # Windows has no resource module
+    resource = None  # type: ignore[assignment]
+
 from .cache import CapinfosCache
-from .errors import PCAPPullerError
+from .errors import PCAPPullerError, TempSpaceError
 from .tools import (
     capinfos_epoch_bounds,
     gzip_file,
@@ -123,6 +127,7 @@ def precise_filter_parallel(
 
     kept: List[Path] = []
     shown = 0
+    failures = 0
     total = len(files)
     def _get_bounds(p: Path):
         if cache:
@@ -145,6 +150,7 @@ def precise_filter_parallel(
                 logging.debug("capinfos failed for %s: %s", f, e)
                 f_epoch = l_epoch = None
             if f_epoch is None or l_epoch is None:
+                failures += 1
                 if debug_n and shown < debug_n:
                     logging.debug("[DEBUG] %s: could not parse capinfos times", f.name)
                     shown += 1
@@ -164,6 +170,14 @@ def precise_filter_parallel(
             done_count += 1
             if progress:
                 progress("precise", done_count, total)
+    if failures:
+        logging.warning("capinfos could not read %d of %d files during precise filtering", failures, total)
+    if not kept and failures:
+        raise PCAPPullerError(
+            f"Precise filtering kept no files, and capinfos failed on {failures} of {total} files. "
+            "Check that Wireshark's capinfos is installed and the files are readable, "
+            "or retry with --no-precise-filter."
+        )
     return kept
 
 
@@ -200,9 +214,14 @@ def build_output(
             tmpdir_path = Path(tmpdir)
             intermediate_files: List[Path] = []
 
-            # Merge in batches
+            # Merge in batches. mergecap opens every input in a batch at once,
+            # so clamp to the process open-files limit (macOS defaults to 256).
             bs = max(1, batch_size)
-            batches = [list(candidates)[i : i + bs] for i in range(0, len(candidates), bs)]
+            if resource is not None:
+                soft, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
+                if soft > 0:
+                    bs = min(bs, max(16, soft - 32))
+            batches = [candidates[i : i + bs] for i in range(0, len(candidates), bs)]
             if progress:
                 progress("merge-batches", 0, len(batches))
             for i, batch in enumerate(batches, 1):
@@ -243,13 +262,13 @@ def build_output(
                 src_for_filter = trimmed
 
             # Optional display filter via tshark
-            final_uncompressed = tmpdir_path / f"final.{out_format}"
             if display_filter:
+                final_uncompressed = tmpdir_path / f"final.{out_format}"
                 run_tshark_filter(src_for_filter, final_uncompressed, display_filter, out_format, verbose=verbose)
                 if progress:
                     progress("display-filter", 1, 1)
             else:
-                shutil.copy2(src_for_filter, final_uncompressed)
+                final_uncompressed = src_for_filter
 
             # Optional gzip compression
             if gzip_out:
@@ -259,13 +278,12 @@ def build_output(
                     progress("gzip", 1, 1)
                 return final_gz
             else:
-                shutil.copy2(final_uncompressed, out_path)
+                # Move (not copy) out of the temp dir; handles cross-device moves
+                shutil.move(str(final_uncompressed), str(out_path))
                 return out_path
     except OSError as oe:
         hint = " Provide a larger temp location with --tmpdir /path/on/big/volume" if tmpdir_parent is None else ""
-        raise PCAPPullerError(f"OS error while handling temporary files: {oe}.{hint}")
-    except subprocess.CalledProcessError as cpe:
-        raise PCAPPullerError(f"External tool error: {cpe}")
+        raise TempSpaceError(f"OS error while handling temporary files: {oe}.{hint}")
 
 
 def summarize_first_last(files: Sequence[Path], workers: int, cache: Optional[CapinfosCache] = None) -> Optional[Tuple[float, float]]:
