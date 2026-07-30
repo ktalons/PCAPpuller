@@ -21,11 +21,17 @@ test -s "$WORK/merged.pcapng"
 packets=$(capinfos -c -M "$WORK/merged.pcapng" | awk -F: '/Number of packets/ {gsub(/ /,"",$2); print $2}')
 test "$packets" = "4"
 
-# Status reports every step complete
+# Steps 1-2 complete; step 3 stays pending because no cleaning was requested
 pcap-puller --workspace "$WORK/ws" --status
+[ "$(pcap-puller --workspace "$WORK/ws" --status | grep -c ': complete')" = "2" ]
+
+# A later explicit cleaning request must still run (the no-op must not have
+# marked step 3 complete)
+pcap-puller --workspace "$WORK/ws" --step 3 --resume --gzip
+test -s "$WORK/merged.pcapng.gz"
 [ "$(pcap-puller --workspace "$WORK/ws" --status | grep -c ': complete')" = "3" ]
 
 # Resume on a finished workflow is a no-op
-pcap-puller --workspace "$WORK/ws" --resume | grep "Step 3 already complete"
+pcap-puller --workspace "$WORK/ws" --resume --gzip | grep "Step 3 already complete"
 
 echo "integration smoke: OK"
