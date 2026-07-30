@@ -1,103 +1,98 @@
 # PCAPpuller Analyst Guide
 
-This guide shows how to extract time windows from large PCAP collections and clean captures efficiently using the three-step workflow.
+How to extract time windows from large PCAP collections and clean captures with
+the three-step workflow.
 
----
+## 1. Install and verify
 
-## 1) Install and verify
-- GUI (recommended): download from releases
-  - https://github.com/ktalons/daPCAPpuller/releases/latest
-- CLI: Python 3.8+ and Wireshark CLI tools
-  - pip install pcappuller[datetime]
+| Method | Command |
+|--------|---------|
+| CLI via pipx | `pipx install "git+https://github.com/ktalons/PCAPpuller"` |
+| CLI via Homebrew | `brew install ktalons/tap/pcappuller` |
+| GUI app (macOS) | `brew install --cask ktalons/tap/pcappuller` |
+| GUI binaries | <https://github.com/ktalons/PCAPpuller/releases/latest> |
 
-Verify tools:
-- tshark --version
-- mergecap --version
+Verify the Wireshark tools PCAPpuller shells out to:
 
----
+```bash
+mergecap --version && editcap --version && capinfos --version && tshark --version
+pcap-puller --version
+```
 
-## 2) Core workflows
+## 2. Window extraction (three-step workflow)
 
-### A) Window extraction (three-step workflow)
-GUI
-1) Launch PCAPpuller GUI
-2) Set Source directory, Start time, Duration (or End)
-3) Optional: Pattern Settings, Display filter, Gzip
-4) Run Workflow (Step 1 + Step 2)
+GUI: set Source directory, Start time, and Duration, then Run Workflow
+(Steps 1+2 are on by default). Use Pattern Settings and the Filters picker as
+needed. To re-run Steps 2/3 later, point the Workspace field at the existing
+workspace folder and untick Step 1.
 
-CLI
-- Complete workflow (recommended)
-  - pcap-puller --workspace /tmp/job --source /data --start "YYYY-MM-DD HH:MM:SS" --minutes 15 --snaplen 256 --gzip
-- Individual steps
-  - pcap-puller --workspace /tmp/job --step 1 --source /data --start "YYYY-MM-DD HH:MM:SS" --minutes 15
-  - pcap-puller --workspace /tmp/job --step 2 --resume --display-filter "dns or http"
-  - pcap-puller --workspace /tmp/job --step 3 --resume --snaplen 256 --gzip
-- Check status
-  - pcap-puller --workspace /tmp/job --status
+CLI:
 
-Notes
-- Pattern filtering avoids duplicate/consolidated files and prevents size inflation
-- Dry-run first: --step 1 --dry-run to validate file selection
+```bash
+# Complete workflow, merged window written to --out
+pcap-puller --workspace /tmp/job --source /data \
+  --start "2026-01-15 10:00:00" --minutes 15 --out /cases/window.pcapng
 
-### B) Clean an existing capture
-GUI
-1) Click Clean...
-2) Choose input PCAP/PCAPNG
-3) Select options (format conversion, reorder, snaplen, trimming, filters, split)
-4) Click Clean
+# Individual steps with resume
+pcap-puller --workspace /tmp/job --step 1 --source /data --start "2026-01-15 10:00:00" --minutes 15
+pcap-puller --workspace /tmp/job --step 2 --resume --display-filter "dns or http"
+pcap-puller --workspace /tmp/job --step 3 --resume --snaplen 256 --gzip
 
-CLI
-- Clean and optimize
-  - pcap-clean --input large.pcapng --snaplen 256 --filter "tcp or udp or icmp" --split-seconds 300
-- Convert and trim window
-  - pcap-clean --input capture.pcapng --start "YYYY-MM-DD HH:MM:SS" --end "YYYY-MM-DD HH:MM:SS" --filter "ip.addr==192.168.1.100"
+# Check progress any time
+pcap-puller --workspace /tmp/job --status
+```
 
----
+Validate selection first on big stores: `--step 1 --dry-run`.
 
-## 3) Pattern filtering (keep it simple)
-Defaults
-- Include: *.pcap, *.pcapng
-- Exclude: none (add excludes only if needed)
+Step 3 only runs the cleaning you ask for (`--snaplen`, `--convert-to-pcap`,
+`--gzip`); with no flags it leaves the Step 2 output untouched.
 
-Custom patterns
-- Include examples:
-  - --include-pattern "*.chunk_*.pcap" "capture_*.pcap"
-- Exclude examples:
-  - --exclude-pattern "*.backup.*" "*.temp.*" "*.sorted.*"
+## 3. Clean an existing capture
 
-Tip: Validate with --step 1 --dry-run before running the full workflow.
+`pcap-clean` post-processes a single file: convert pcapng to pcap, reorder by
+timestamp, truncate payloads, trim a window, apply a display filter, split.
 
----
+```bash
+# Reorder + filter + split into 5-minute chunks (payloads kept intact)
+pcap-clean --input large.pcapng --filter "tcp or udp or icmp" --split-seconds 300
 
-## 4) Best practices
-- Use --workspace and run the three-step workflow to avoid size inflation
-- Validate selection with --step 1 --dry-run
-- Use --precise-filter to skip irrelevant files on large stores
-- Tune --workers to match storage throughput (auto is a good default)
-- Use Step 3 cleaning for 60–90% final size reduction
+# Truncate payloads to headers and trim a window
+pcap-clean --input capture.pcapng --snaplen 256 \
+  --start "2026-01-15 10:00:00" --end "2026-01-15 10:15:00"
+```
 
----
+Note: `--snaplen` is off by default; passing a value irreversibly truncates
+payloads in the output.
 
-## 5) Troubleshooting
-- Tools not found: install Wireshark CLI tools and ensure PATH is set
-- No candidate files: increase --slop-min, verify time window, try without --precise-filter
-- Temp disk full: set --tmpdir to a larger filesystem or reduce --batch-size
-- Step failures: check --status and re-run with --resume
+## 4. Pattern filtering
 
----
+Defaults: include `*.pcap` and `*.pcapng`, no excludes. Add patterns only when
+the collection mixes rolling chunks with consolidated files:
 
-## 6) Filters (a few useful examples)
-- Security
-  - "tls.alert.description == 21"          # TLS certificate errors
-  - "http.response.code >= 400"           # HTTP errors
-- Protocol
-  - "dns.flags.rcode != 0"                # DNS failures
-  - "icmp.type == 3"                      # Destination unreachable
+```bash
+--include-pattern "*.chunk_*.pcap" --exclude-pattern "*.sorted.*" "*.backup.*"
+```
 
-Reference: Wireshark Display Filter Reference — https://www.wireshark.org/docs/dfref/
+## 5. Troubleshooting
 
----
+| Symptom | Fix |
+|---------|-----|
+| "not found in PATH" at start | Install Wireshark CLI tools (`brew install wireshark` / `apt install tshark`) |
+| No candidate files | Widen `--slop-min`, check the window, run `--step 1 --dry-run` |
+| capinfos failures reported | Check file readability; `--no-precise-filter` skips packet-time checks |
+| Temp disk full | Point `--tmpdir` at a larger filesystem or lower `--batch-size` |
+| Step failed midway | `--status` to see where, then re-run with `--resume` |
 
-## 7) Status and resume
-- Show progress: pcap-puller --workspace /tmp/job --status
-- Resume after failure: use --resume with the next step
+Exit codes: 0 ok, 2 bad arguments, 3 bad time window, 10 disk/temp error,
+11 tool missing or failed.
+
+## 6. Useful display filters
+
+```text
+tls.alert.description == 21     TLS certificate errors
+http.response.code >= 400       HTTP errors
+dns.flags.rcode != 0            DNS failures
+icmp.type == 3                  Destination unreachable
+```
+
+Reference: <https://www.wireshark.org/docs/dfref/>
