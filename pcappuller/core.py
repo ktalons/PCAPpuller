@@ -245,7 +245,7 @@ def build_output(
                     trimmed_all = intermediate_files[0]
                 else:
                     trimmed_all = tmpdir_path / f"merged_all_trimmed.{out_format}"
-                    merge_batch(intermediate_files, trimmed_all, verbose=verbose)
+                    merge_batch(intermediate_files, trimmed_all, verbose=verbose, out_format=out_format)
                 src_for_filter = trimmed_all
             else:
                 # Combine to one file then trim once

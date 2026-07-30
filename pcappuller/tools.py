@@ -36,8 +36,11 @@ def which_or_error(name: str) -> str:
     raise ToolNotFoundError(f"'{name}' not found in PATH. Please install Wireshark CLI tools.")
 
 
-def merge_batch(inputs: Sequence[Path], out_path: Path, verbose: bool = False) -> None:
-    cmd = ["mergecap", "-w", str(out_path), *[str(p) for p in inputs]]
+def merge_batch(inputs: Sequence[Path], out_path: Path, verbose: bool = False, out_format: str | None = None) -> None:
+    """Merge inputs into out_path. Pass out_format when the output name implies
+    a specific container: mergecap defaults to pcapng regardless of extension."""
+    fmt_flag = ["-F", out_format] if out_format else []
+    cmd = ["mergecap", *fmt_flag, "-w", str(out_path), *[str(p) for p in inputs]]
     _run(cmd, verbose)
 
 
