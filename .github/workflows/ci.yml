@@ -25,4 +25,4 @@ jobs:
         run: ruff check --select E,F --ignore E501 .
 
       - name: Mypy
-        run: mypy PCAPpuller.py pcappuller gui_pcappuller.py
+        run: mypy pcappuller

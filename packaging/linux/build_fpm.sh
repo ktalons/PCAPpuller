@@ -75,7 +75,7 @@ mkdir -p "$OUTDIR"
 
 NAME="pcappuller-gui"
 DESC="PCAPpuller GUI: fast PCAP window selector, merger, trimmer"
-URL="https://github.com/ktalons/daPCAPpuller"
+URL="https://github.com/ktalons/PCAPpuller"
 LICENSE="MIT"
 MAINTAINER="Kyle Versluis"
 

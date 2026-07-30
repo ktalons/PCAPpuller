@@ -1,17 +1,17 @@
 from __future__ import annotations
 
+import datetime as dt
 import json
 import logging
 import os
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Callable
-import datetime as dt
+from typing import Any, Callable, Dict, List, Optional
 
-from .core import Window, candidate_files, precise_filter_parallel, build_output
-from .tools import run_editcap_snaplen, try_convert_to_pcap
-from .errors import PCAPPullerError
 from .cache import CapinfosCache
+from .core import Window, build_output, candidate_files, precise_filter_parallel
+from .errors import PCAPPullerError
+from .tools import run_editcap_snaplen, try_convert_to_pcap
 
 
 @dataclass

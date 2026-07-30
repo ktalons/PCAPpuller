@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pcappuller"
-version = "0.3.1"
+dynamic = ["version"]
 description = "A fast PCAP window selector, merger, trimmer, and cleaner"
 readme = "README.md"
 authors = [
   { name = "Kyle Versluis" }
 ]
 license = { file = "LICENSE" }
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 keywords = ["pcap", "wireshark", "network", "analysis", "packet", "capture", "forensics"]
 classifiers = [
   "Development Status :: 4 - Beta",
@@ -22,11 +22,10 @@ classifiers = [
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.8",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: System :: Networking :: Monitoring",
   "Topic :: System :: Systems Administration",
 ]
@@ -35,29 +34,32 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ktalons/daPCAPpuller"
-"Bug Reports" = "https://github.com/ktalons/daPCAPpuller/issues"
-"Source" = "https://github.com/ktalons/daPCAPpuller"
-"Documentation" = "https://github.com/ktalons/daPCAPpuller/blob/main/docs/Analyst-Guide.md"
+Homepage = "https://github.com/ktalons/PCAPpuller"
+"Bug Reports" = "https://github.com/ktalons/PCAPpuller/issues"
+"Source" = "https://github.com/ktalons/PCAPpuller"
+"Documentation" = "https://github.com/ktalons/PCAPpuller/blob/main/docs/Analyst-Guide.md"
 
 [project.optional-dependencies]
 # pip install .[gui]
-# Note: PySimpleGUI now requires extra-index-url https://PySimpleGUI.net/install
-gui = ["PySimpleGUI"]
+gui = ["FreeSimpleGUI"]
 # pip install .[datetime]
 datetime = ["python-dateutil"]
+# pip install -e .[dev]
+dev = ["pytest", "ruff", "mypy", "pre-commit"]
 
 [project.scripts]
 pcap-puller = "pcappuller.cli:main"
 pcap-puller-gui = "pcappuller.gui:main"
-PCAPpuller = "pcappuller.gui:main"
 pcap-clean = "pcappuller.clean_cli:main"
 
 [tool.setuptools]
 packages = ["pcappuller"]
 
+[tool.setuptools.dynamic]
+version = { attr = "pcappuller.__version__" }
+
 [tool.ruff]
-target-version = "py38"
+target-version = "py310"
 line-length = 100
 extend-exclude = ["_smoke_data", ".venv"]
 
@@ -66,7 +68,7 @@ select = ["E", "F", "I"]
 ignore = ["E501"]
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 ignore_missing_imports = true
 disable_error_code = ["import-untyped"]
 warn_redundant_casts = true

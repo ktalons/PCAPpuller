@@ -7,16 +7,17 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
+from . import __version__
 from .errors import PCAPPullerError
 from .logging_setup import setup_logging
 from .time_parse import parse_dt_flexible
 from .tools import (
-    which_or_error,
-    try_convert_to_pcap,
-    run_reordercap,
     run_editcap_snaplen,
     run_editcap_trim,
+    run_reordercap,
     run_tshark_filter,
+    try_convert_to_pcap,
+    which_or_error,
 )
 
 
@@ -36,6 +37,7 @@ def parse_args() -> argparse.Namespace:
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+    ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     ap.add_argument("--input", required=True, help="Input capture file (.pcap or .pcapng)")
     ap.add_argument(
         "--out-dir",

@@ -62,7 +62,7 @@ jobs:
           install -m 0755 release/PCAPpullerGUI-linux "$STAGE/usr/local/bin/pcappuller-gui"
           NAME=pcappuller-gui
           DESC="PCAPpuller GUI: fast PCAP window selector, merger, trimmer"
-          URL="https://github.com/ktalons/daPCAPpuller"
+          URL="https://github.com/ktalons/PCAPpuller"
           LICENSE=MIT
           MAINTAINER="Kyle Versluis"
           # deb
