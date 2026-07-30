@@ -19,6 +19,7 @@ from .cache import CapinfosCache, default_cache_path
 from .core import Window, ensure_tools, parse_workers
 from .errors import PCAPPullerError, TempSpaceError
 from .logging_setup import setup_logging
+from .reco import recommended_batch_size, recommended_slop_min, recommended_trim_per_batch
 from .time_parse import TimeParseError, parse_start_and_window
 from .tools import which_or_error
 from .workflow import ThreeStepWorkflow, WorkflowState
@@ -166,19 +167,7 @@ def run_step1(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
         # Auto defaults: compute slop from the workflow window (works under --resume,
         # where the time flags are absent from args)
         duration_minutes = int((state.window.end - state.window.start).total_seconds() // 60)
-        if args.slop_min is None:
-            if duration_minutes <= 15:
-                slop_min = 120
-            elif duration_minutes <= 60:
-                slop_min = 60
-            elif duration_minutes <= 240:
-                slop_min = 30
-            elif duration_minutes <= 720:
-                slop_min = 20
-            else:
-                slop_min = 15
-        else:
-            slop_min = args.slop_min
+        slop_min = recommended_slop_min(duration_minutes) if args.slop_min is None else args.slop_min
 
         workers = parse_workers(args.workers, 1000)  # Estimate for auto calculation
 
@@ -218,24 +207,11 @@ def run_step2(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
         # None = auto: trim per batch for windows over an hour to cap temp-space use
         trim_per_batch = args.trim_per_batch
 
-        # Auto defaults for Step 2 if not provided
-        # Determine duration from state
+        # Auto defaults for Step 2 if not provided, keyed off the window duration
         duration_minutes = int((state.window.end - state.window.start).total_seconds() // 60)
-        if args.batch_size is None:
-            if duration_minutes <= 15:
-                batch_size = 500
-            elif duration_minutes <= 60:
-                batch_size = 400
-            elif duration_minutes <= 240:
-                batch_size = 300
-            elif duration_minutes <= 720:
-                batch_size = 200
-            else:
-                batch_size = 150
-        else:
-            batch_size = int(args.batch_size)
+        batch_size = recommended_batch_size(duration_minutes) if args.batch_size is None else int(args.batch_size)
         if trim_per_batch is None:
-            trim_per_batch = duration_minutes > 60
+            trim_per_batch = recommended_trim_per_batch(duration_minutes)
 
         # Setup cache for Step 2 precise filtering (default on)
         if not args.no_cache:

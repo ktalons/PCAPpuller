@@ -55,6 +55,9 @@ pcap-clean = "pcappuller.clean_cli:main"
 [tool.setuptools]
 packages = ["pcappuller"]
 
+[tool.setuptools.package-data]
+pcappuller = ["assets/*.png"]
+
 [tool.setuptools.dynamic]
 version = { attr = "pcappuller.__version__" }
 
