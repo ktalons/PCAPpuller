@@ -44,8 +44,9 @@ Homepage = "https://github.com/ktalons/PCAPpuller"
 gui = ["FreeSimpleGUI"]
 # pip install .[datetime]
 datetime = ["python-dateutil"]
-# pip install -e .[dev]
-dev = ["pytest", "ruff", "mypy", "pre-commit"]
+# pip install -e .[dev] -- ruff/mypy pinned to match .pre-commit-config.yaml so
+# a new formatter release cannot turn CI red without a code change
+dev = ["pytest", "ruff~=0.16.0", "mypy~=2.3.0", "pre-commit"]
 
 [project.scripts]
 pcap-puller = "pcappuller.cli:main"

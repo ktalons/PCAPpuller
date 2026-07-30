@@ -156,6 +156,21 @@ def test_final_out_path_out_without_suffix():
     assert got == Path("/data/final.pcap.gz")
 
 
+def test_final_out_path_preserves_dotted_stems():
+    """IP- and date-named targets must keep their stem intact (audit finding)."""
+    got = cli._final_out_path(Path("/data/10.0.0.1_capture.pcapng"), Path("c.pcap"))
+    assert got == Path("/data/10.0.0.1_capture.pcap")
+    got = cli._final_out_path(Path("/data/incident.2026-07-30.pcapng"), Path("c.pcap.gz"))
+    assert got == Path("/data/incident.2026-07-30.pcap.gz")
+    got = cli._final_out_path(Path("/data/v1.2.3-capture.pcapng"), Path("c.pcapng"))
+    assert got == Path("/data/v1.2.3-capture.pcapng")
+
+
+def test_final_out_path_ignores_unknown_cleaned_suffixes():
+    got = cli._final_out_path(Path("/data/final.pcapng"), Path("snaplen_2026.01.15.pcap"))
+    assert got == Path("/data/final.pcap")
+
+
 def test_step2_preflight_missing_mergecap_exits_11(
     monkeypatch, tmp_path, fake_which, make_minimal_pcap
 ):
@@ -173,3 +188,61 @@ def test_step2_preflight_missing_mergecap_exits_11(
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == 11
+
+
+def _forged_workflow(tmp_path, step2_done: bool):
+    """Workspace with a state forged past (or before) step 2."""
+    from pcappuller.workflow import WorkflowState
+
+    ws = tmp_path / "ws3"
+    workflow = ThreeStepWorkflow(ws)
+    processed = ws / "processed" / "merged.pcapng"
+    if step2_done:
+        processed.parent.mkdir(parents=True, exist_ok=True)
+        processed.write_bytes(b"x")
+    state = WorkflowState(
+        workspace_dir=ws,
+        root_dirs=[tmp_path],
+        window=WINDOW,
+        include_patterns=[],
+        exclude_patterns=[],
+        step1_complete=True,
+        step2_complete=step2_done,
+        processed_file=processed if step2_done else None,
+    )
+    state.save(workflow.state_file)
+    return workflow, state
+
+
+def _step3_args(**overrides):
+    from argparse import Namespace
+
+    base = dict(snaplen=None, convert_to_pcap=False, gzip=False, out=None, verbose=False)
+    base.update(overrides)
+    return Namespace(**base)
+
+
+def test_step3_noop_leaves_step3_pending(tmp_path, capsys):
+    """No cleaning flags: step 3 must stay pending so a later --gzip run works."""
+    workflow, state = _forged_workflow(tmp_path, step2_done=True)
+    result = cli.run_step3(workflow, state, _step3_args())
+    assert result.step3_complete is False
+    assert result.cleaned_file is None
+    assert "skipping" in capsys.readouterr().out
+
+
+def test_step3_noop_before_step2_raises(tmp_path):
+    """--step 3 on a workflow that never ran step 2 must not poison state."""
+    workflow, state = _forged_workflow(tmp_path, step2_done=False)
+    with pytest.raises(PCAPPullerError, match="Step 2 must be completed"):
+        cli.run_step3(workflow, state, _step3_args())
+
+
+def test_step3_out_refuses_to_clobber_foreign_file(tmp_path, fake_run):
+    """--out pointing at an existing unrelated file must not be overwritten."""
+    workflow, state = _forged_workflow(tmp_path, step2_done=True)
+    foreign = tmp_path / "evidence.pcapng"
+    foreign.write_bytes(b"unrelated evidence")
+    with pytest.raises(TempSpaceError, match="Refusing to overwrite"):
+        cli.run_step3(workflow, state, _step3_args(snaplen=96, out=str(foreign)))
+    assert foreign.read_bytes() == b"unrelated evidence"

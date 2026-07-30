@@ -117,3 +117,10 @@ def test_minutes_crossing_midnight_clamped():
 def test_minutes_landing_exactly_on_midnight_clamped():
     _, end = parse_start_and_window("2026-01-02 23:30:00", 30, None)
     assert end == dt.datetime(2026, 1, 2, 23, 59, 59, 999999)
+
+
+def test_end_not_after_start_rejected():
+    with pytest.raises(TimeParseError, match="after"):
+        parse_start_and_window("2026-01-02 10:00:00", None, "2026-01-02 09:00:00")
+    with pytest.raises(TimeParseError, match="after"):
+        parse_start_and_window("2026-01-02 10:00:00", None, "2026-01-02 10:00:00")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 import threading
@@ -8,7 +9,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 # Bump to force a rebuild of existing cache files (they simply repopulate)
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Commit every N writes instead of per-write: one fsync per file crawls on
 # large scans, and losing a partial batch only costs re-running capinfos
@@ -39,6 +40,7 @@ class CapinfosCache:
                 path TEXT PRIMARY KEY,
                 size INTEGER NOT NULL,
                 mtime_ns INTEGER NOT NULL,
+                ino INTEGER NOT NULL DEFAULT 0,
                 first REAL,
                 last REAL,
                 updated_at REAL NOT NULL
@@ -61,8 +63,8 @@ class CapinfosCache:
         with self._lock:
             cur = self.conn.cursor()
             row = cur.execute(
-                "SELECT first, last FROM entries WHERE path=? AND size=? AND mtime_ns=?",
-                (str(path), st.st_size, st.st_mtime_ns),
+                "SELECT first, last FROM entries WHERE path=? AND size=? AND mtime_ns=? AND ino=?",
+                (str(path), st.st_size, st.st_mtime_ns, st.st_ino),
             ).fetchone()
         if not row:
             return None
@@ -79,8 +81,8 @@ class CapinfosCache:
         with self._lock:
             cur = self.conn.cursor()
             cur.execute(
-                "REPLACE INTO entries(path,size,mtime_ns,first,last,updated_at) VALUES (?,?,?,?,?,?)",
-                (str(path), st.st_size, st.st_mtime_ns, first, last, time.time()),
+                "REPLACE INTO entries(path,size,mtime_ns,ino,first,last,updated_at) VALUES (?,?,?,?,?,?,?)",
+                (str(path), st.st_size, st.st_mtime_ns, st.st_ino, first, last, time.time()),
             )
             self._dirty += 1
             if self._dirty >= COMMIT_EVERY:
@@ -102,7 +104,8 @@ class CapinfosCache:
                     self._dirty = 0
             self.conn.close()
         except Exception:
-            pass
+            # Cache loss is recoverable (capinfos re-runs), but say it happened
+            logging.warning("capinfos cache flush failed on close", exc_info=True)
 
 
 def default_cache_path() -> Path:

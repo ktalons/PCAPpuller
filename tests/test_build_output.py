@@ -94,12 +94,14 @@ def test_trim_per_batch_multi_batch(tmp_path, make_minimal_pcap, fake_run, monke
         assert Path(argv[-2]).name.startswith("batch_")  # src is that batch's merge output
 
     merges = fake_run.argv_for("mergecap")
-    assert len(merges) == 4  # 3 batch merges + final merge of trimmed outputs
-    final_inputs = _merge_inputs(merges[-1])
-    assert len(final_inputs) == 3
-    assert all("_trimmed." in Path(p).name for p in final_inputs)
-    # The final merge runs after every per-batch trim
-    assert fake_run.calls.index(merges[-1]) > max(fake_run.calls.index(e) for e in edits)
+    # 3 batch merges; the 3 trimmed outputs then fold in pairs (the clamp
+    # bounds fan-in too): 2 fold merges + 1 final merge
+    assert len(merges) == 6
+    assert all(len(_merge_inputs(a)) <= 2 for a in merges)
+    fold_inputs = _merge_inputs(merges[3]) + _merge_inputs(merges[4])
+    assert all("_trimmed." in Path(p).name for p in fold_inputs)
+    # The fan-in merges run after every per-batch trim
+    assert fake_run.calls.index(merges[3]) > max(fake_run.calls.index(e) for e in edits)
 
 
 def test_trim_per_batch_single_batch(tmp_path, make_minimal_pcap, fake_run, monkeypatch):
@@ -200,3 +202,25 @@ def test_oserror_no_hint_when_tmpdir_parent_given(
     with pytest.raises(TempSpaceError) as exc:
         _build(cands, tmp_path / "out.pcapng", tmpdir_parent=parent)
     assert "--tmpdir" not in str(exc.value)
+
+
+def test_final_fanin_respects_clamp(tmp_path, make_minimal_pcap, fake_run, monkeypatch):
+    """The final combine must honor the clamp too (audit finding): with an
+    effective batch of 2, no mergecap call may receive more than 2 inputs."""
+    _patch_rlimit(monkeypatch)
+    cands = _candidates(tmp_path, make_minimal_pcap, 9)
+    out = _build(cands, tmp_path / "out.pcapng", batch_size=2)
+    assert out.exists()
+    merges = fake_run.argv_for("mergecap")
+    assert all(len(_merge_inputs(a)) <= 2 for a in merges)
+
+
+def test_final_fanin_keeps_format_flag(tmp_path, make_minimal_pcap, fake_run, monkeypatch):
+    """Fold rounds must not lose the -F conversion on the final trim-per-batch merge."""
+    _patch_rlimit(monkeypatch)
+    cands = _candidates(tmp_path, make_minimal_pcap, 9)
+    _build(cands, tmp_path / "out.pcap", batch_size=2, out_format="pcap", trim_per_batch=True)
+    merges = fake_run.argv_for("mergecap")
+    final = merges[-1]
+    assert "-F" in final and final[final.index("-F") + 1] == "pcap"
+    assert all(len(_merge_inputs(a)) <= 2 for a in merges)

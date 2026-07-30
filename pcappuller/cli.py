@@ -30,7 +30,6 @@ class ExitCodes:
     OK = 0
     ARGS = 2
     TIME = 3
-    RANGE = 5
     OSERR = 10
     TOOL = 11
 
@@ -306,13 +305,23 @@ def run_step2(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
             cache.close()
 
 
+# Extensions cleaning can produce or replace; anything else in the name
+# (IP addresses, dates) is part of the stem and must be preserved
+_CAPTURE_SUFFIXES = {".pcap", ".pcapng", ".cap", ".gz"}
+
+
 def _final_out_path(out_arg: Path, cleaned: Path) -> Path:
     """Rename target for the cleaned artifact: the requested --out name with the
-    cleaned file's real extension chain (cleaning may convert format or gzip)."""
+    cleaned file's real extension chain (cleaning may convert format or gzip).
+    Only known capture extensions are stripped -- dotted stems like
+    10.0.0.1_capture.pcapng keep their stem intact."""
     stem = out_arg.name
     for s in reversed(out_arg.suffixes):
+        if s.lower() not in _CAPTURE_SUFFIXES:
+            break
         stem = stem[: -len(s)]
-    return out_arg.with_name(stem + "".join(cleaned.suffixes))
+    cleaned_ext = "".join(s for s in cleaned.suffixes if s.lower() in _CAPTURE_SUFFIXES)
+    return out_arg.with_name(stem + cleaned_ext)
 
 
 def run_step3(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> WorkflowState:
@@ -327,14 +336,14 @@ def run_step3(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
         clean_options["gzip"] = True
 
     # No options requested: nothing to clean. Do not silently convert or
-    # compress -- Step 2's output is already the final artifact.
+    # compress -- Step 2's output is already the final artifact. Step 3 stays
+    # pending so a later run with explicit cleaning flags still executes.
     if not clean_options:
+        if not state.step2_complete:
+            raise PCAPPullerError("Step 2 must be completed before Step 3")
         print(
             "[3/3] No cleaning options requested; skipping (use --snaplen/--convert-to-pcap/--gzip)"
         )
-        state.cleaned_file = state.processed_file
-        state.step3_complete = True
-        state.save(workflow.state_file)
         return state
 
     print("[3/3] Cleaning output (removing headers/metadata)...")
@@ -351,6 +360,13 @@ def run_step3(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
         if args.out and state.cleaned_file and state.cleaned_file.exists():
             target = _final_out_path(Path(args.out), state.cleaned_file)
             if target != state.cleaned_file:
+                # Overwriting this workflow's own Step 2 output at the path the
+                # user named is expected; anything else existing there is not ours
+                if target.exists() and target != state.processed_file:
+                    raise TempSpaceError(
+                        f"Refusing to overwrite existing file {target}; "
+                        f"the cleaned output remains at {state.cleaned_file}"
+                    )
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(state.cleaned_file), str(target))
                 state.cleaned_file = target
@@ -404,7 +420,13 @@ def main():
     setup_logging(args.verbose)
 
     workspace = Path(args.workspace)
-    workflow = ThreeStepWorkflow(workspace)
+    try:
+        # Constructor mkdirs the workspace: map an unwritable path to the
+        # documented disk-error exit instead of a raw traceback
+        workflow = ThreeStepWorkflow(workspace)
+    except OSError as oe:
+        logging.error("Cannot create workspace %s: %s", workspace, oe)
+        sys.exit(ExitCodes.OSERR)
 
     # Status check
     if args.status:

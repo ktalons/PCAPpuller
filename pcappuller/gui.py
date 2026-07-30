@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
+import re
 import shutil
 import tempfile
 import threading
@@ -30,22 +32,47 @@ from .workflow import ThreeStepWorkflow
 
 STALE_WORKSPACE_AGE_DAYS = 7
 
+# Written into workspaces this GUI auto-creates; the sweeper only ever deletes
+# directories carrying it, so user-created workspaces are never touched
+AUTOTMP_SENTINEL = ".pcappuller-autotmp"
+
+_AUTO_WS_RE = re.compile(r"^pcappuller_\d{8}_\d{6}$")
+
+
+def _holds_output(d: Path) -> bool:
+    """True when the workspace's state file names a still-existing artifact
+    inside the workspace -- deleting it would delete the user's deliverable."""
+    try:
+        state = json.loads((d / "workflow_state.json").read_text())
+    except (OSError, ValueError):
+        return False
+    for key in ("cleaned_file", "processed_file"):
+        p = state.get(key)
+        if p and Path(p).exists() and d in Path(p).parents:
+            return True
+    return False
+
 
 def _sweep_stale_workspaces(max_age_days: int = STALE_WORKSPACE_AGE_DAYS) -> None:
     """Best-effort removal of auto-created temp workspaces from old runs.
 
-    Only touches directories that match our naming pattern AND contain a
-    workflow state file, so a foreign pcappuller_* directory is never removed.
+    Deletes only directories that match the generated naming pattern, carry the
+    auto-created sentinel, and do not hold a run's output artifact.
     """
     tmp = Path(tempfile.gettempdir())
     cutoff = time.time() - max_age_days * 86400
     try:
         for d in tmp.glob("pcappuller_*"):
             try:
-                if not d.is_dir() or not (d / "workflow_state.json").exists():
+                if not d.is_dir() or not _AUTO_WS_RE.match(d.name):
                     continue
-                if d.stat().st_mtime < cutoff:
-                    shutil.rmtree(d, ignore_errors=True)
+                if not (d / AUTOTMP_SENTINEL).exists():
+                    continue
+                if d.stat().st_mtime >= cutoff:
+                    continue
+                if _holds_output(d):
+                    continue
+                shutil.rmtree(d, ignore_errors=True)
             except OSError:
                 continue
     except OSError:
@@ -267,6 +294,9 @@ def run_workflow_v2(
             auto_workspace = True
 
         workflow = ThreeStepWorkflow(workspace_dir)
+        if auto_workspace:
+            # Mark as ours so the stale-workspace sweeper may reclaim it later
+            (workspace_dir / AUTOTMP_SENTINEL).touch()
 
         if run_step1:
             # Parse time window
@@ -416,11 +446,9 @@ def run_workflow_v2(
         if run_step3:
             window.write_event_value("-STEP-UPDATE-", ("Step 3: Cleaning output...", 3))
             if not clean_options:
-                # Nothing selected: do not silently truncate or convert
+                # Nothing selected: do not silently truncate or convert. Step 3
+                # stays pending so a later run with real options still executes.
                 log("Step 3: no cleaning options selected; skipping (nothing to do)")
-                state.cleaned_file = state.processed_file
-                state.step3_complete = True
-                state.save(workflow.state_file)
             else:
                 state = workflow.step3_clean(
                     state=state,

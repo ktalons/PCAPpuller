@@ -248,23 +248,37 @@ def build_output(
                 if progress:
                     progress("merge-batches", i, len(batches))
 
+            def fold_merge(files: List[Path], final_path: Path, fmt: Optional[str]) -> Path:
+                """Merge files into final_path without ever passing more than the
+                clamped batch size to one mergecap call (fan-in must respect the
+                open-files limit too). group >= 2 guarantees each round shrinks."""
+                group = max(2, bs)
+                rounds = 0
+                while len(files) > group:
+                    rounds += 1
+                    folded: List[Path] = []
+                    for j in range(0, len(files), group):
+                        part = tmpdir_path / f"fold_{rounds:03d}_{j // group:05d}.pcapng"
+                        merge_batch(files[j : j + group], part, verbose=verbose)
+                        folded.append(part)
+                    files = folded
+                if len(files) == 1:
+                    # Only possible when the input was a single batch, which
+                    # already carries the right container format
+                    return files[0]
+                merge_batch(files, final_path, verbose=verbose, out_format=fmt)
+                return final_path
+
             if trim_per_batch:
                 # Combine already-trimmed batches; no further global trim required
-                if len(intermediate_files) == 1:
-                    trimmed_all = intermediate_files[0]
-                else:
-                    trimmed_all = tmpdir_path / f"merged_all_trimmed.{out_format}"
-                    merge_batch(
-                        intermediate_files, trimmed_all, verbose=verbose, out_format=out_format
-                    )
-                src_for_filter = trimmed_all
+                src_for_filter = fold_merge(
+                    intermediate_files,
+                    tmpdir_path / f"merged_all_trimmed.{out_format}",
+                    out_format,
+                )
             else:
                 # Combine to one file then trim once
-                if len(intermediate_files) == 1:
-                    merged_all = intermediate_files[0]
-                else:
-                    merged_all = tmpdir_path / "merged_all.pcapng"
-                    merge_batch(intermediate_files, merged_all, verbose=verbose)
+                merged_all = fold_merge(intermediate_files, tmpdir_path / "merged_all.pcapng", None)
                 # Trim to time window in desired format
                 trimmed = tmpdir_path / f"trimmed.{out_format}"
                 run_editcap_trim(

@@ -83,8 +83,8 @@ the collection mixes rolling chunks with consolidated files:
 | Temp disk full | Point `--tmpdir` at a larger filesystem or lower `--batch-size` |
 | Step failed midway | `--status` to see where, then re-run with `--resume` |
 
-Exit codes: 0 ok, 2 bad arguments, 3 bad time window, 10 disk/temp error,
-11 tool missing or failed.
+Exit codes: 0 ok, 1 unexpected error, 2 bad arguments, 3 bad time window,
+10 disk/temp error, 11 tool missing or failed.
 
 ## 6. Useful display filters
 

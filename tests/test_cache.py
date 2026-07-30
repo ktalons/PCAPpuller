@@ -91,7 +91,7 @@ def test_schema_migration_recreates_table(tmp_path):
 
     cache = CapinfosCache(db)
     (version,) = cache.conn.execute("PRAGMA user_version").fetchone()
-    assert version == SCHEMA_VERSION == 2
+    assert version == SCHEMA_VERSION
     (count,) = cache.conn.execute("SELECT COUNT(*) FROM entries").fetchone()
     assert count == 0
     p = _make_file(tmp_path)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 from typing import TYPE_CHECKING, Optional, Tuple
 
 from .errors import PCAPPullerError
@@ -67,11 +68,21 @@ def parse_start_and_window(
             raise TimeParseError(
                 "Window crosses midnight. Choose a window within a single calendar day."
             )
+        if end <= start:
+            raise TimeParseError("--end must be after --start.")
     else:
         assert minutes is not None
         mins = int(minutes)
         end = start + dt.timedelta(minutes=mins)
-        # Clamp to end-of-day if duration crosses midnight
+        # Clamp to end-of-day if duration crosses midnight -- and say so, since
+        # this silently narrows the requested evidence window
         if end.date() != start.date():
-            end = dt.datetime.combine(start.date(), dt.time(23, 59, 59, 999999))
+            clamped = dt.datetime.combine(start.date(), dt.time(23, 59, 59, 999999))
+            logging.warning(
+                "Window clamped to end of day: requested end %s, using %s. "
+                "Run again with --start at midnight to cover the remainder.",
+                end,
+                clamped,
+            )
+            end = clamped
     return start, end

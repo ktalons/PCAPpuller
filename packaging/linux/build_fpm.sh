@@ -12,9 +12,10 @@ fi
 ROOT_DIR=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$ROOT_DIR"
 
-VERSION=$(grep -E '^version\s*=\s*"[0-9]+\.[0-9]+\.[0-9]+"' pyproject.toml | sed -E 's/.*"([0-9]+\.[0-9]+\.[0-9]+)"/\1/')
+# Version is dynamic (pyproject reads pcappuller.__version__); parse the source
+VERSION=$(sed -nE 's/^__version__ = "([0-9]+\.[0-9]+\.[0-9]+)"/\1/p' pcappuller/__init__.py)
 if [[ -z "${VERSION:-}" ]]; then
-  echo "Could not parse version from pyproject.toml" >&2
+  echo "Could not parse version from pcappuller/__init__.py" >&2
   exit 1
 fi
 
