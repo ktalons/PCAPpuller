@@ -8,11 +8,16 @@ import subprocess
 from pathlib import Path
 from typing import Sequence
 
-from .errors import PCAPPullerError
+from .errors import ExternalToolError, ToolNotFoundError
+
+# One slow-but-alive capinfos call should not stall a scan thread forever
+# (e.g. a dead NFS/SMB mount); merges and trims have no timeout because
+# they legitimately run for hours on large captures.
+CAPINFOS_TIMEOUT_S = 60
 
 
 def which_or_error(name: str) -> str:
-    """Return full path to tool or raise PCAPPullerError.
+    """Return full path to tool or raise ToolNotFoundError.
     On Windows, also try common Wireshark install dirs if not in PATH.
     """
     p = shutil.which(name)
@@ -28,7 +33,7 @@ def which_or_error(name: str) -> str:
             candidate = str(Path(d) / f"{name}.exe")
             if Path(candidate).exists():
                 return candidate
-    raise PCAPPullerError(f"'{name}' not found in PATH. Please install Wireshark CLI tools.")
+    raise ToolNotFoundError(f"'{name}' not found in PATH. Please install Wireshark CLI tools.")
 
 
 def merge_batch(inputs: Sequence[Path], out_path: Path, verbose: bool = False) -> None:
@@ -59,7 +64,7 @@ def try_convert_to_pcap(src: Path, dst: Path, verbose: bool = False) -> bool:
     try:
         _run(cmd, verbose)
         return True
-    except subprocess.CalledProcessError:
+    except ExternalToolError:
         if verbose:
             logging.debug("Conversion to pcap failed; keeping original format for %s", src)
         # Ensure dst isn't partially created
@@ -94,7 +99,17 @@ def capinfos_epoch_bounds(path: Path):
     env = dict(os.environ)
     env["LC_ALL"] = "C"
     env["LANG"] = "C"
-    res = subprocess.run(["capinfos", "-a", "-e", "-S", str(path)], capture_output=True, text=True, env=env)
+    try:
+        res = subprocess.run(
+            ["capinfos", "-a", "-e", "-S", str(path)],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=CAPINFOS_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        logging.warning("capinfos timed out after %ds on %s", CAPINFOS_TIMEOUT_S, path)
+        return (None, None)
     if res.returncode != 0:
         return (None, None)
     first = last = None
@@ -114,8 +129,17 @@ def capinfos_epoch_bounds(path: Path):
 
 
 def _run(cmd, verbose: bool = False) -> None:
+    tool = Path(str(cmd[0])).name
     if verbose:
         logging.debug("RUN %s", " ".join(str(c) for c in cmd))
-        subprocess.run(cmd, check=True)
-    else:
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True)
+    except FileNotFoundError:
+        raise ToolNotFoundError(f"'{tool}' not found in PATH. Please install Wireshark CLI tools.")
+    if res.returncode != 0:
+        # Keep the tail of stderr so the user sees the tool's actual complaint
+        lines = (res.stderr or res.stdout or "").strip().splitlines()
+        detail = " | ".join(lines[-3:]) if lines else ""
+        raise ExternalToolError(tool, res.returncode, detail)
+    if verbose and res.stderr:
+        logging.debug("%s stderr: %s", tool, res.stderr.strip())
