@@ -8,21 +8,69 @@ jobs:
   lint-typecheck:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
-      - name: Install dependencies (lint/typecheck only)
+      - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install ruff mypy
+          pip install -e ".[dev,datetime]"
 
-      - name: Ruff (E,F only)
-        run: ruff check --select E,F --ignore E501 .
+      - name: Ruff lint
+        run: ruff check .
 
       - name: Mypy
         run: mypy pcappuller
+
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ['3.10', '3.11', '3.12', '3.13']
+        include:
+          - os: macos-latest
+            python-version: '3.13'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,datetime]"
+
+      - name: Unit tests
+        run: pytest -q
+
+      - name: Install smoke test
+        run: |
+          pcap-puller --version
+          pcap-clean --version
+          python -c "import pcappuller; print(pcappuller.__version__)"
+
+  integration-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install package and Wireshark CLI tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[datetime]"
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y tshark
+
+      - name: Three-step workflow smoke test
+        run: bash tests/integration/smoke.sh
