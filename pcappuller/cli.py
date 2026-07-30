@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import shutil
 import sys
 from pathlib import Path
 
@@ -15,10 +16,11 @@ from tqdm import tqdm
 
 from . import __version__
 from .cache import CapinfosCache, default_cache_path
-from .core import Window, parse_workers
-from .errors import PCAPPullerError
+from .core import Window, ensure_tools, parse_workers
+from .errors import PCAPPullerError, TempSpaceError
 from .logging_setup import setup_logging
-from .time_parse import parse_start_and_window
+from .time_parse import TimeParseError, parse_start_and_window
+from .tools import which_or_error
 from .workflow import ThreeStepWorkflow, WorkflowState
 
 
@@ -29,6 +31,14 @@ class ExitCodes:
     RANGE = 5
     OSERR = 10
     TOOL = 11
+
+
+def _exit_code_for(e: PCAPPullerError) -> int:
+    if isinstance(e, TimeParseError):
+        return ExitCodes.TIME
+    if isinstance(e, TempSpaceError):
+        return ExitCodes.OSERR
+    return ExitCodes.TOOL
 
 
 def parse_args():
@@ -71,9 +81,8 @@ def parse_args():
     step2_group.add_argument("--batch-size", type=int, default=None, help="Files per merge batch (auto by default)")
     step2_group.add_argument("--out-format", choices=["pcap", "pcapng"], default="pcapng", help="Output format")
     step2_group.add_argument("--display-filter", help="Wireshark display filter")
-    step2_group.add_argument("--trim-per-batch", action="store_true", help="Trim each batch before final merge")
-    step2_group.add_argument("--no-trim-per-batch", action="store_false", dest="trim_per_batch",
-                           help="Only trim final merged file")
+    step2_group.add_argument("--trim-per-batch", action=argparse.BooleanOptionalAction, default=None,
+                           help="Trim each batch before final merge (default: auto, on for windows over 60 min)")
     step2_group.add_argument("--out", help="Explicit output file path for Step 2 (e.g., /path/to/output.pcapng). If omitted, a timestamped file is written under the workspace.")
     step2_group.add_argument("--no-precise-filter", action="store_true", help="Disable precise filtering in Step 2 (advanced)")
 
@@ -122,6 +131,9 @@ def setup_progress_callback(desc: str) -> tuple:
 
     def progress_callback(phase: str, current: int, total: int):
         nonlocal pbar
+        if total <= 0:
+            # Heartbeat with unknown total (e.g. directory scan): no determinate bar
+            return
         if pbar is None or pbar.total != total:
             if pbar:
                 pbar.close()
@@ -137,7 +149,7 @@ def setup_progress_callback(desc: str) -> tuple:
 
 def run_step1(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> WorkflowState:
     """Execute Step 1: File Selection."""
-    print("🔍 Step 1: Selecting PCAP files...")
+    print("[1/3] Selecting PCAP files...")
 
     # Setup cache (not strictly needed for Step 1 now, but keep for future-proofing)
     cache = None
@@ -151,12 +163,9 @@ def run_step1(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
     progress_cb, cleanup_pb = setup_progress_callback("Step 1: File Selection")
 
     try:
-        # Auto defaults: compute slop based on requested duration when not provided
-        try:
-            start, end = parse_start_and_window(args.start, args.minutes, args.end)
-            duration_minutes = int((end - start).total_seconds() // 60)
-        except Exception:
-            duration_minutes = 60
+        # Auto defaults: compute slop from the workflow window (works under --resume,
+        # where the time flags are absent from args)
+        duration_minutes = int((state.window.end - state.window.start).total_seconds() // 60)
         if args.slop_min is None:
             if duration_minutes <= 15:
                 slop_min = 120
@@ -186,8 +195,8 @@ def run_step1(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
 
         if not args.dry_run:
             files = state.selected_files or []
-            print(f"✅ Step 1 complete: {len(files)} files selected")
-            total_size_mb = sum(int(f.stat().st_size) for f in files) / (1024*1024)
+            print(f"Step 1 complete: {len(files)} files selected")
+            total_size_mb = sum(int(f.stat().st_size) for f in files if f.exists()) / (1024*1024)
             print(f"   Total size: {total_size_mb:.1f} MB")
 
         return state
@@ -200,14 +209,14 @@ def run_step1(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
 
 def run_step2(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> WorkflowState:
     """Execute Step 2: Processing (merge, trim, filter)."""
-    print("⚙️  Step 2: Processing files (merge, trim, filter)...")
+    print("[2/3] Processing files (merge, trim, filter)...")
 
     progress_cb, cleanup_pb = setup_progress_callback("Step 2: Processing")
+    cache = None
 
     try:
-        trim_per_batch = None
-        if args.trim_per_batch is not None:
-            trim_per_batch = args.trim_per_batch
+        # None = auto: trim per batch for windows over an hour to cap temp-space use
+        trim_per_batch = args.trim_per_batch
 
         # Auto defaults for Step 2 if not provided
         # Determine duration from state
@@ -229,14 +238,13 @@ def run_step2(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
             trim_per_batch = duration_minutes > 60
 
         # Setup cache for Step 2 precise filtering (default on)
-        cache = None
         if not args.no_cache:
             cache_path = default_cache_path() if args.cache == "auto" else Path(args.cache)
             cache = CapinfosCache(cache_path)
             if args.clear_cache:
                 cache.clear()
 
-        workers = parse_workers(args.workers, total_files=1000)
+        workers = parse_workers(args.workers, total_files=len(state.selected_files or []) or 1000)
 
         state = workflow.step2_process(
             state=state,
@@ -253,7 +261,7 @@ def run_step2(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
             cache=cache,
         )
 
-        print("✅ Step 2 complete: Processed file saved")
+        print("Step 2 complete: Processed file saved")
         if state.processed_file and state.processed_file.exists():
             size_mb = state.processed_file.stat().st_size / (1024*1024)
             print(f"   Output: {state.processed_file}")
@@ -263,6 +271,17 @@ def run_step2(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
 
     finally:
         cleanup_pb()
+        if cache:
+            cache.close()
+
+
+def _final_out_path(out_arg: Path, cleaned: Path) -> Path:
+    """Rename target for the cleaned artifact: the requested --out name with the
+    cleaned file's real extension chain (cleaning may convert format or gzip)."""
+    stem = out_arg.name
+    for s in reversed(out_arg.suffixes):
+        stem = stem[: -len(s)]
+    return out_arg.with_name(stem + "".join(cleaned.suffixes))
 
 
 def run_step3(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> WorkflowState:
@@ -276,11 +295,16 @@ def run_step3(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
     if args.gzip:
         clean_options['gzip'] = True
 
-    # If user did not specify options, apply safe defaults that do not truncate payloads
+    # No options requested: nothing to clean. Do not silently convert or
+    # compress -- Step 2's output is already the final artifact.
     if not clean_options:
-        clean_options = {"convert_to_pcap": True, "gzip": True}
+        print("[3/3] No cleaning options requested; skipping (use --snaplen/--convert-to-pcap/--gzip)")
+        state.cleaned_file = state.processed_file
+        state.step3_complete = True
+        state.save(workflow.state_file)
+        return state
 
-    print("🧹 Step 3: Cleaning output (removing headers/metadata)...")
+    print("[3/3] Cleaning output (removing headers/metadata)...")
 
     progress_cb, cleanup_pb = setup_progress_callback("Step 3: Cleaning")
 
@@ -292,7 +316,17 @@ def run_step3(workflow: ThreeStepWorkflow, state: WorkflowState, args) -> Workfl
             verbose=args.verbose
         )
 
-        print("✅ Step 3 complete: Cleaned file saved")
+        # Honor --out: the final cleaned artifact lands at the requested path
+        # (with its real extension chain), not buried in workspace/cleaned/
+        if args.out and state.cleaned_file and state.cleaned_file.exists():
+            target = _final_out_path(Path(args.out), state.cleaned_file)
+            if target != state.cleaned_file:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(state.cleaned_file), str(target))
+                state.cleaned_file = target
+                state.save(workflow.state_file)
+
+        print("Step 3 complete: Cleaned file saved")
         if state.cleaned_file and state.cleaned_file.exists():
             size_mb = state.cleaned_file.stat().st_size / (1024*1024)
             print(f"   Output: {state.cleaned_file}")
@@ -310,29 +344,29 @@ def show_status(workflow: ThreeStepWorkflow):
         state = workflow.load_workflow()
         summary = workflow.get_summary(state)
 
-        print("📊 Workflow Status")
+        print("Workflow status")
         print(f"   Workspace: {summary['workspace_dir']}")
         print(f"   Time window: {summary['window']}")
         print()
 
         steps = summary['steps_complete']
-        print(f"   Step 1 (Select): {'✅ Complete' if steps['step1_select'] else '⏳ Pending'}")
+        print(f"   Step 1 (Select): {'complete' if steps['step1_select'] else 'pending'}")
         if 'selected_files' in summary:
             sf = summary['selected_files']
             print(f"            Files: {sf['count']}, Size: {sf['total_size_mb']} MB")
 
-        print(f"   Step 2 (Process): {'✅ Complete' if steps['step2_process'] else '⏳ Pending'}")
+        print(f"   Step 2 (Process): {'complete' if steps['step2_process'] else 'pending'}")
         if 'processed_file' in summary:
             pf = summary['processed_file']
             print(f"            File: {Path(pf['path']).name}, Size: {pf['size_mb']} MB")
 
-        print(f"   Step 3 (Clean): {'✅ Complete' if steps['step3_clean'] else '⏳ Pending'}")
+        print(f"   Step 3 (Clean): {'complete' if steps['step3_clean'] else 'pending'}")
         if 'cleaned_file' in summary:
             cf = summary['cleaned_file']
             print(f"            File: {Path(cf['path']).name}, Size: {cf['size_mb']} MB")
 
     except PCAPPullerError as e:
-        print(f"❌ No workflow found: {e}")
+        print(f"No workflow found: {e}")
 
 
 def main():
@@ -350,10 +384,10 @@ def main():
     try:
         # Load or create workflow state
         if args.resume:
-            print("📂 Resuming existing workflow...")
+            print("Resuming existing workflow...")
             state = workflow.load_workflow()
         else:
-            print("🚀 Starting new workflow...")
+            print("Starting new workflow...")
             # Parse time window
             start, end = parse_start_and_window(args.start, args.minutes, args.end)
             window = Window(start=start, end=end)
@@ -367,6 +401,15 @@ def main():
                 exclude_patterns=args.exclude_pattern
             )
 
+        # Preflight: verify the Wireshark tools the requested steps will need,
+        # before any work starts (a missing mergecap mid-run otherwise surfaces
+        # as a misleading temp-space error)
+        if args.step in ["2", "all"] and not state.step2_complete:
+            ensure_tools(args.display_filter, not bool(getattr(args, "no_precise_filter", False)))
+        if args.step in ["3", "all"] and not state.step3_complete:
+            if args.snaplen or args.convert_to_pcap:
+                which_or_error("editcap")
+
         # Run requested steps
         if args.step in ["1", "all"]:
             if not state.step1_complete:
@@ -374,19 +417,19 @@ def main():
                 if args.dry_run:
                     sys.exit(ExitCodes.OK)
             else:
-                print("✅ Step 1 already complete")
+                print("Step 1 already complete")
 
         if args.step in ["2", "all"]:
             if not state.step2_complete:
                 state = run_step2(workflow, state, args)
             else:
-                print("✅ Step 2 already complete")
+                print("Step 2 already complete")
 
         if args.step in ["3", "all"]:
             if not state.step3_complete:
                 state = run_step3(workflow, state, args)
             else:
-                print("✅ Step 3 already complete")
+                print("Step 3 already complete")
 
         # Final summary
         if args.step == "all" or (args.step == "3" and state.step3_complete):
@@ -394,7 +437,7 @@ def main():
             if final_file and final_file.exists():
                 size_mb = final_file.stat().st_size / (1024*1024)
                 print()
-                print("🎉 Workflow complete!")
+                print("Workflow complete.")
                 print(f"   Final output: {final_file}")
                 print(f"   Size: {size_mb:.1f} MB")
 
@@ -402,7 +445,7 @@ def main():
 
     except PCAPPullerError as e:
         logging.error(str(e))
-        sys.exit(ExitCodes.OSERR if "OS error" in str(e) else ExitCodes.TOOL)
+        sys.exit(_exit_code_for(e))
     except Exception:
         logging.exception("Unexpected error")
         sys.exit(1)

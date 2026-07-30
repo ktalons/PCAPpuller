@@ -12,6 +12,7 @@ from .errors import PCAPPullerError
 from .logging_setup import setup_logging
 from .time_parse import parse_dt_flexible
 from .tools import (
+    _run,
     run_editcap_snaplen,
     run_editcap_trim,
     run_reordercap,
@@ -55,8 +56,8 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument(
         "--snaplen",
         type=int,
-        default=256,
-        help="Truncate packets to this many bytes (set to 0 to disable)",
+        default=0,
+        help="Truncate packets to this many bytes, e.g. 256 to keep headers only (default: 0 = keep full payloads)",
     )
     ap.add_argument(
         "--start",
@@ -180,15 +181,7 @@ def clean_pipeline(
         if split_packets:
             cmd += ["-c", str(int(split_packets))]
         cmd += [str(current), str(chunk_base)]
-        if verbose:
-            logging.debug("RUN %s", " ".join(cmd))
-            import subprocess as _sp
-
-            _sp.run(cmd, check=True)
-        else:
-            import subprocess as _sp
-
-            _sp.run(cmd, check=True, stdout=_sp.DEVNULL, stderr=_sp.STDOUT)
+        _run(cmd, verbose=verbose)
         # Collect produced chunks (editcap appends numeric parts to the given name)
         produced = sorted(out_dir.glob(f"{base}.chunk_*{suffix}"))
         if not produced:
