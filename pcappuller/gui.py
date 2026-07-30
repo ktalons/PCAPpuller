@@ -662,7 +662,8 @@ def main():
         [sg.Output(size=(100, 15))],
     ]
 
-    window = sg.Window("PCAPpuller", layout, size=(900, 800))
+    # finalize=True so the recommendation label can render before the first read()
+    window = sg.Window("PCAPpuller", layout, size=(900, 800), finalize=True)
     icon_path = _find_icon()
     if icon_path:
         try:
