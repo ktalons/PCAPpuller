@@ -52,8 +52,10 @@ jobs:
               gui_pcappuller.py
             mv dist/PCAPpullerGUI.exe "release/PCAPpullerGUI-windows.exe"
           elif [ "$RUNNER_OS" = "macOS" ]; then
-            # Build a proper .app so Finder runs it correctly
+            # Build a proper .app so Finder runs it correctly.
+            # Bundle identifier matches the zap stanza in the Homebrew cask (ktalons/homebrew-tap).
             pyinstaller --windowed --name PCAPpullerGUI \
+              --osx-bundle-identifier com.ktalons.PCAPpuller \
               --icon assets/PCAPpuller.icns \
               --add-data "pcappuller/assets/pcappuller.png:pcappuller/assets" \
               gui_pcappuller.py
