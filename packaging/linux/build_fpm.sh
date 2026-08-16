@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Build .deb, .rpm, and .tar.zst packages for the Linux GUI binary using fpm.
-# Requirements: fpm (gem install fpm), Linux binary at dist/PCAPpullerGUI-linux
+# Package metadata mirrors the DEB/RPM step of .github/workflows/release.yml.
+# Requirements: fpm (gem install fpm), Linux binary at release/PCAPpullerGUI-linux
+#               (built by packaging/linux/build_pyinstaller.sh)
 # Usage: packaging/linux/build_fpm.sh
 
 if ! command -v fpm >/dev/null 2>&1; then
@@ -19,15 +21,17 @@ if [[ -z "${VERSION:-}" ]]; then
   exit 1
 fi
 
-BIN_SRC="dist/PCAPpullerGUI-linux"
-if [[ ! -f "$BIN_SRC" ]]; then
-  if [[ -f "dist/PCAPpullerGUI" ]]; then
-    BIN_SRC="dist/PCAPpullerGUI"
-  else
-    echo "Linux GUI binary not found at dist/PCAPpullerGUI-linux or dist/PCAPpullerGUI" >&2
-    echo "Build it first using PyInstaller: scripts/build_gui.sh" >&2
-    exit 1
+BIN_SRC=""
+for candidate in release/PCAPpullerGUI-linux dist/PCAPpullerGUI-linux dist/PCAPpullerGUI; do
+  if [[ -f "$candidate" ]]; then
+    BIN_SRC="$candidate"
+    break
   fi
+done
+if [[ -z "$BIN_SRC" ]]; then
+  echo "Linux GUI binary not found at release/PCAPpullerGUI-linux (or dist/PCAPpullerGUI-linux, dist/PCAPpullerGUI)" >&2
+  echo "Build it first: packaging/linux/build_pyinstaller.sh" >&2
+  exit 1
 fi
 
 STAGE=$(mktemp -d)

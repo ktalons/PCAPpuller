@@ -11,6 +11,9 @@ __pycache__/
 build/
 develop-eggs/
 dist/
+# Local runs of the packaging/ build scripts (same layout as release CI) and build_fpm.sh output
+release/
+packaging/artifacts/
 downloads/
 eggs/
 .eggs/
