@@ -40,59 +40,19 @@ jobs:
             exit 1
           fi
 
+      # The per-OS scripts under packaging/ are the single source of truth for the build recipe
+      # (flags, version stamping, signing, version resource, zip). They read the version from
+      # pcappuller.__version__, which the check above pins to the tag, and write into release/.
       - name: Build GUI binary
         shell: bash
         run: |
           set -euxo pipefail
-          mkdir -p release
           if [ "$RUNNER_OS" = "Windows" ]; then
-            # Version resource: render packaging/windows/version-info.txt with the release version,
-            # then let PyInstaller embed it. A leftover placeholder fails the build.
-            VERSION="${GITHUB_REF_NAME#v}"
-            IFS=. read -r MAJOR MINOR PATCH <<< "$VERSION"
-            mkdir -p build
-            sed -e "s/@VERSION@/${VERSION}/g" \
-                -e "s/@VERSION_TUPLE@/${MAJOR}, ${MINOR}, ${PATCH}, 0/g" \
-                packaging/windows/version-info.txt > build/version-info.txt
-            if grep -q '@' build/version-info.txt; then
-              echo "::error::unrendered placeholder in build/version-info.txt"
-              exit 1
-            fi
-            pyinstaller --onefile --windowed --name PCAPpullerGUI \
-              --icon assets/PCAPpuller.ico \
-              --version-file build/version-info.txt \
-              --add-data "pcappuller/assets/pcappuller.png;pcappuller/assets" \
-              gui_pcappuller.py
-            mv dist/PCAPpullerGUI.exe "release/PCAPpullerGUI-windows.exe"
-            # Read the resource back so a missing or wrong version fails the build instead of shipping.
-            ACTUAL=$(powershell -NoProfile -Command "(Get-Item 'release/PCAPpullerGUI-windows.exe').VersionInfo.ProductVersion" | tr -d '\r')
-            test "$ACTUAL" = "$VERSION"
+            pwsh -NoProfile -ExecutionPolicy Bypass -File packaging/windows/build_pyinstaller.ps1
           elif [ "$RUNNER_OS" = "macOS" ]; then
-            # Build a proper .app so Finder runs it correctly.
-            # Bundle identifier matches the zap stanza in the Homebrew cask (ktalons/homebrew-tap).
-            pyinstaller --windowed --name PCAPpullerGUI \
-              --osx-bundle-identifier com.ktalons.PCAPpuller \
-              --icon assets/PCAPpuller.icns \
-              --add-data "pcappuller/assets/pcappuller.png:pcappuller/assets" \
-              gui_pcappuller.py
-            # PyInstaller's CLI can't set the bundle version (only a .spec can), so stamp it here.
-            # Info.plist is covered by the ad-hoc seal PyInstaller applies, so re-sign afterwards,
-            # then verify the seal and the value so a bad bundle fails the build instead of shipping.
-            APP=dist/PCAPpullerGUI.app
-            VERSION="${GITHUB_REF_NAME#v}"
-            plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
-            plutil -replace CFBundleVersion -string "$VERSION" "$APP/Contents/Info.plist"
-            codesign --force --sign - "$APP"
-            codesign --verify --deep --strict "$APP"
-            test "$(plutil -extract CFBundleShortVersionString raw -o - "$APP/Contents/Info.plist")" = "$VERSION"
-            # -y keeps the symlinks inside Python.framework. Without it zip flattens them into copies,
-            # which bloats the bundle and breaks strict signature verification after unpacking.
-            (cd dist && zip -ry ../release/PCAPpullerGUI-macos.zip PCAPpullerGUI.app)
+            bash packaging/macos/build_pyinstaller.sh
           else
-            pyinstaller --onefile --windowed --name PCAPpullerGUI \
-              --add-data "pcappuller/assets/pcappuller.png:pcappuller/assets" \
-              gui_pcappuller.py
-            mv dist/PCAPpullerGUI "release/PCAPpullerGUI-linux"
+            bash packaging/linux/build_pyinstaller.sh
           fi
 
       - name: Build DEB/RPM (Linux)
@@ -101,29 +61,9 @@ jobs:
         run: |
           set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y ruby-full build-essential rpm
+          sudo apt-get install -y ruby-full build-essential rpm zstd
           sudo gem install --no-document fpm
-          VERSION="${GITHUB_REF_NAME#v}"
-          STAGE=$(mktemp -d)
-          mkdir -p "$STAGE/usr/local/bin"
-          install -m 0755 release/PCAPpullerGUI-linux "$STAGE/usr/local/bin/pcappuller-gui"
-          NAME=pcappuller-gui
-          DESC="PCAPpuller GUI: fast PCAP window selector, merger, trimmer"
-          URL="https://github.com/ktalons/PCAPpuller"
-          LICENSE=MIT
-          MAINTAINER="Kyle Versluis"
-          # deb
-          fpm -s dir -t deb -n "$NAME" -v "$VERSION" \
-            --license "$LICENSE" --url "$URL" --maintainer "$MAINTAINER" \
-            --description "$DESC" \
-            -C "$STAGE" --prefix / \
-            -p "release/${NAME}_${VERSION}_amd64.deb"
-          # rpm
-          fpm -s dir -t rpm -n "$NAME" -v "$VERSION" \
-            --license "$LICENSE" --url "$URL" --maintainer "$MAINTAINER" \
-            --description "$DESC" \
-            -C "$STAGE" --prefix / \
-            -p "release/${NAME}-${VERSION}-1.x86_64.rpm"
+          OUTDIR=release bash packaging/linux/build_fpm.sh
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

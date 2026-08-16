@@ -35,7 +35,8 @@ if [[ -z "$BIN_SRC" ]]; then
 fi
 
 STAGE=$(mktemp -d)
-trap 'rm -rf "$STAGE"' EXIT
+TARSTAGE=$(mktemp -d)
+trap 'rm -rf "$STAGE" "$TARSTAGE"' EXIT
 mkdir -p "$STAGE/usr/local/bin"
 cp "$BIN_SRC" "$STAGE/usr/local/bin/pcappuller-gui"
 chmod 0755 "$STAGE/usr/local/bin/pcappuller-gui"
@@ -75,8 +76,11 @@ else
   echo "Warning: no icon found at assets/icons/pcappuller.png or assets/icons/pcap.png; proceeding without icon" >&2
 fi
 
-OUTDIR="$ROOT_DIR/packaging/artifacts"
+# Output directory: packaging/artifacts/ for local runs; release CI sets OUTDIR=release.
+# Made absolute because the tar step below runs from inside its staging directory.
+OUTDIR="${OUTDIR:-$ROOT_DIR/packaging/artifacts}"
 mkdir -p "$OUTDIR"
+OUTDIR=$(cd "$OUTDIR" && pwd)
 
 NAME="pcappuller-gui"
 DESC="PCAPpuller GUI: fast PCAP window selector, merger, trimmer"
@@ -99,8 +103,6 @@ fpm -s dir -t rpm -n "$NAME" -v "$VERSION" \
   -p "$OUTDIR/${NAME}-${VERSION}-1.x86_64.rpm"
 
 # tar.zst (no package manager)
-TARSTAGE=$(mktemp -d)
-trap 'rm -rf "$TARSTAGE"' EXIT
 mkdir -p "$TARSTAGE/usr/local/bin"
 cp "$BIN_SRC" "$TARSTAGE/usr/local/bin/pcappuller-gui"
 mkdir -p "$OUTDIR"
