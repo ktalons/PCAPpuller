@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Build .deb, .rpm, and .tar.zst packages for the Linux GUI binary using fpm.
+# Build .deb and .rpm packages for the Linux GUI binary using fpm (plus a .tar.zst with BUILD_TARBALL=1).
 # Package metadata mirrors the DEB/RPM step of .github/workflows/release.yml.
 # Requirements: fpm (gem install fpm), Linux binary at release/PCAPpullerGUI-linux
 #               (built by packaging/linux/build_pyinstaller.sh)
-# Usage: packaging/linux/build_fpm.sh
+# Usage: packaging/linux/build_fpm.sh            # .deb + .rpm into packaging/artifacts/
+#        BUILD_TARBALL=1 packaging/linux/build_fpm.sh   # also the .tar.zst
 
 if ! command -v fpm >/dev/null 2>&1; then
   echo "fpm not found. Install with: gem install fpm" >&2
@@ -102,10 +103,12 @@ fpm -s dir -t rpm -n "$NAME" -v "$VERSION" \
   -C "$STAGE" --prefix / \
   -p "$OUTDIR/${NAME}-${VERSION}-1.x86_64.rpm"
 
-# tar.zst (no package manager)
-mkdir -p "$TARSTAGE/usr/local/bin"
-cp "$BIN_SRC" "$TARSTAGE/usr/local/bin/pcappuller-gui"
-mkdir -p "$OUTDIR"
-( cd "$TARSTAGE" && tar --zstd -cf "$OUTDIR/${NAME}-${VERSION}-linux-amd64.tar.zst" usr )
+# tar.zst (no package manager). Opt-in with BUILD_TARBALL=1; the release CI does not set it,
+# so releases ship .deb and .rpm only.
+if [[ "${BUILD_TARBALL:-0}" == "1" ]]; then
+  mkdir -p "$TARSTAGE/usr/local/bin"
+  cp "$BIN_SRC" "$TARSTAGE/usr/local/bin/pcappuller-gui"
+  ( cd "$TARSTAGE" && tar --zstd -cf "$OUTDIR/${NAME}-${VERSION}-linux-amd64.tar.zst" usr )
+fi
 
 echo "Artifacts written to $OUTDIR/"
