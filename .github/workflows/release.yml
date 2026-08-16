@@ -148,3 +148,27 @@ jobs:
         with:
           token: ${{ github.token }}
           files: artifacts/**
+
+  notify-tap:
+    # Triggers ktalons/homebrew-tap's Update Cask / Update Formula workflows via
+    # repository_dispatch (event: pcappuller-release). Runs only after the release and its
+    # assets exist, because the tap workflows hash the published assets.
+    # GITHUB_TOKEN cannot dispatch to another repo, so this needs TAP_DISPATCH_TOKEN:
+    # a fine-grained PAT with Contents: read/write on ktalons/homebrew-tap.
+    needs: release
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Dispatch homebrew-tap bump
+        env:
+          GH_TOKEN: ${{ secrets.TAP_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::error::TAP_DISPATCH_TOKEN secret is not set; ktalons/homebrew-tap was NOT notified about ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+          gh api --method POST repos/ktalons/homebrew-tap/dispatches \
+            -f event_type=pcappuller-release \
+            -f "client_payload[tag]=${GITHUB_REF_NAME}"
+          echo "Dispatched pcappuller-release tag=${GITHUB_REF_NAME} to ktalons/homebrew-tap"
