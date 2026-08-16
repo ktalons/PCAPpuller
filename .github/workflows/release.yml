@@ -57,7 +57,19 @@ jobs:
               --icon assets/PCAPpuller.icns \
               --add-data "pcappuller/assets/pcappuller.png:pcappuller/assets" \
               gui_pcappuller.py
-            (cd dist && zip -r ../release/PCAPpullerGUI-macos.zip PCAPpullerGUI.app)
+            # PyInstaller's CLI can't set the bundle version (only a .spec can), so stamp it here.
+            # Info.plist is covered by the ad-hoc seal PyInstaller applies, so re-sign afterwards,
+            # then verify the seal and the value so a bad bundle fails the build instead of shipping.
+            APP=dist/PCAPpullerGUI.app
+            VERSION="${GITHUB_REF_NAME#v}"
+            plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
+            plutil -replace CFBundleVersion -string "$VERSION" "$APP/Contents/Info.plist"
+            codesign --force --sign - "$APP"
+            codesign --verify --deep --strict "$APP"
+            test "$(plutil -extract CFBundleShortVersionString raw -o - "$APP/Contents/Info.plist")" = "$VERSION"
+            # -y keeps the symlinks inside Python.framework. Without it zip flattens them into copies,
+            # which bloats the bundle and breaks strict signature verification after unpacking.
+            (cd dist && zip -ry ../release/PCAPpullerGUI-macos.zip PCAPpullerGUI.app)
           else
             pyinstaller --onefile --windowed --name PCAPpullerGUI \
               --add-data "pcappuller/assets/pcappuller.png:pcappuller/assets" \
