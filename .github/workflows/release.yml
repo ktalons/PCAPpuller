@@ -46,11 +46,27 @@ jobs:
           set -euxo pipefail
           mkdir -p release
           if [ "$RUNNER_OS" = "Windows" ]; then
+            # Version resource: render packaging/windows/version-info.txt with the release version,
+            # then let PyInstaller embed it. A leftover placeholder fails the build.
+            VERSION="${GITHUB_REF_NAME#v}"
+            IFS=. read -r MAJOR MINOR PATCH <<< "$VERSION"
+            mkdir -p build
+            sed -e "s/@VERSION@/${VERSION}/g" \
+                -e "s/@VERSION_TUPLE@/${MAJOR}, ${MINOR}, ${PATCH}, 0/g" \
+                packaging/windows/version-info.txt > build/version-info.txt
+            if grep -q '@' build/version-info.txt; then
+              echo "::error::unrendered placeholder in build/version-info.txt"
+              exit 1
+            fi
             pyinstaller --onefile --windowed --name PCAPpullerGUI \
               --icon assets/PCAPpuller.ico \
+              --version-file build/version-info.txt \
               --add-data "pcappuller/assets/pcappuller.png;pcappuller/assets" \
               gui_pcappuller.py
             mv dist/PCAPpullerGUI.exe "release/PCAPpullerGUI-windows.exe"
+            # Read the resource back so a missing or wrong version fails the build instead of shipping.
+            ACTUAL=$(powershell -NoProfile -Command "(Get-Item 'release/PCAPpullerGUI-windows.exe').VersionInfo.ProductVersion" | tr -d '\r')
+            test "$ACTUAL" = "$VERSION"
           elif [ "$RUNNER_OS" = "macOS" ]; then
             # Build a proper .app so Finder runs it correctly.
             # Bundle identifier matches the zap stanza in the Homebrew cask (ktalons/homebrew-tap).

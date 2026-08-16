@@ -1,0 +1,37 @@
+# UTF-8
+#
+# Windows version resource for PCAPpullerGUI-windows.exe.
+# PyInstaller embeds this via --version-file; .github/workflows/release.yml renders it at
+# build time, replacing the two placeholders wrapped in at-signs with the release version
+# ("0.4.0") and its four-integer tuple form ("0, 4, 0, 0").
+# Format: https://pyinstaller.org/en/stable/usage.html#capturing-windows-version-data
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(@VERSION_TUPLE@),
+    prodvers=(@VERSION_TUPLE@),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo([
+      StringTable(
+        '040904B0',
+        [
+          StringStruct('CompanyName', 'ktalons'),
+          StringStruct('FileDescription', 'PCAPpuller GUI: fast PCAP window selector, merger, trimmer'),
+          StringStruct('FileVersion', '@VERSION@'),
+          StringStruct('InternalName', 'PCAPpullerGUI'),
+          StringStruct('LegalCopyright', 'Copyright (c) 2025 kyle. MIT License.'),
+          StringStruct('OriginalFilename', 'PCAPpullerGUI-windows.exe'),
+          StringStruct('ProductName', 'PCAPpuller'),
+          StringStruct('ProductVersion', '@VERSION@')
+        ]
+      )
+    ]),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+  ]
+)
